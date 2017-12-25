@@ -3,6 +3,7 @@
 module Main where
 
 import Brick
+import Brick.Widgets.Core(vBox, viewport)
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
@@ -29,8 +30,7 @@ import qualified Data.Text as T
 
 data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a]
 
---not currently used
-type AppName = ()
+data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
 data Event = QuitEvent | PreviousItem | NextItem | OpenItem
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
@@ -94,18 +94,16 @@ handleOpenItemEvent state = do
         Right i -> do
           let url = case (_HNItem_url i) of
                 Just u -> T.unpack u
-                Nothing -> "https://news.ycombinator.com/item?id=" ++ (show (_HNItem_id i))
+                Nothing -> "https://news.ycombinator.com/item?id=" ++ show (_HNItem_id i)
           rawSystem "xdg-open" [url]
   return state
 
 drawUI :: AppState -> [Widget AppName]
-drawUI state =
-    [
-    withBorderStyle unicode $
-    str "|q| Quit" <=>
-    -- commentsTreeView 0 (StartNodes [Node c1 [LeafNode c2], LeafNode c3]) <=>
-    storiesView (_AppState_selectedStory state) (_AppState_stories state)
-    ]
+drawUI state = [ui]
+  where ui = withBorderStyle unicode $
+             vBox [ vLimit 1 $ viewport ViewportHeader Vertical $ str "|q| Quit"
+                  , viewport ViewportMain Vertical $ storiesView (_AppState_selectedStory state) (_AppState_stories state)
+                  ]
 
 commentView :: Either String HNItem -> Widget AppName
 commentView comment =
@@ -152,11 +150,13 @@ storiesView selectedItem items =
 
       getView :: Int -> Either String HNItem -> Widget AppName
       getView itemNum item =
-        let attr = if selectedItem == itemNum then selectedStoryAttr else defaultAttr
-        in 
-          case item of
-            Left error -> withAttr attr $ str ("Story could not be loaded: " ++ error) <=> hBorder
-            Right i -> withAttr attr $ getItemView i <=> hBorder
+        let view = case item of
+                Left error -> str ("Story could not be loaded: " ++ error) <=> hBorder
+                Right i -> getItemView i <=> hBorder
+        in
+          if selectedItem == itemNum then visible $ withAttr selectedStoryAttr view
+          else withAttr defaultAttr view
+          
 
       viewsAccum = mapAccumL (\x y -> (x+1, (getView x y))) 0 items
       views = case viewsAccum of
