@@ -21,7 +21,7 @@ import Data.Int
 import Data.Time
 import Data.Maybe(fromMaybe)
 import Data.Text(Text)
-import Data.List(foldl')
+import Data.List(foldl', mapAccumL)
 import qualified Data.Text as T
 
 data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a]
@@ -29,35 +29,56 @@ data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a]
 --not currently used
 type AppName = ()
 
-data Event = QuitEvent | PreviousItem | NextItem
-data AppState = AppState { _AppState_stories :: [Either String HNItem] }
+data Event = QuitEvent | PreviousItem | NextItem deriving (Show)
+data AppState = AppState { _AppState_stories :: [Either String HNItem]
+                         , _AppState_storyIds :: Either String [HNID]
+                         , _AppState_selectedStory :: Int
+                         , _AppState_storiesSort :: StoriesSortType
+                         }
 
 main :: IO AppState
 main = do
-  stories <- testGetStories
+  putStrLn "Loading..."
+  initialState <- getInitialState
   let app :: App AppState Event AppName
       app = App { appDraw = drawUI 
                   , appHandleEvent = handleEvent
-                  , appStartEvent = return 
+                  , appStartEvent = return
                   , appAttrMap = const theMap
                   , appChooseCursor = neverShowCursor
                   }
-      initialState =  AppState { _AppState_stories = stories }
   defaultMain app initialState
 
+selectedStoryAttr, defaultAttr :: AttrName
+selectedStoryAttr = "selectedStory"
+defaultAttr = "defaultAttr"
+
 theMap :: AttrMap
-theMap = attrMap V.defAttr []
+theMap = attrMap V.defAttr
+  [ (selectedStoryAttr, V.red `on` V.white)
+  , (defaultAttr, V.defAttr)
+  ]
 
 handleEvent :: AppState -> BrickEvent AppName Event -> EventM AppName (Next AppState)
 handleEvent state (AppEvent QuitEvent) = halt state
-handleEvent state (AppEvent PreviousItem) = continue state
-handleEvent state (AppEvent NextItem) = continue state
+handleEvent state (AppEvent PreviousItem) = continue $ handleNextItemEvent state True
+handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state False
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
+handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'k') [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey V.KUp [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'j') [])) = handleEvent state (AppEvent NextItem)
 handleEvent state (VtyEvent (V.EvKey V.KDown [])) = handleEvent state (AppEvent NextItem)
 handleEvent state _ = continue state
+
+handleNextItemEvent :: AppState -> Bool -> AppState
+handleNextItemEvent state previous =
+  let selectedItem = _AppState_selectedStory state
+      nextSelectedItem = case previous of
+        True -> max 0 $ selectedItem - 1
+        False -> min (storiesPerPage-1) $ selectedItem + 1
+  in
+    state { _AppState_selectedStory = nextSelectedItem }
 
 drawUI :: AppState -> [Widget AppName]
 drawUI state =
@@ -65,7 +86,7 @@ drawUI state =
     withBorderStyle unicode $
     str "|q| Quit" <=>
     -- commentsTreeView 0 (StartNodes [Node c1 [LeafNode c2], LeafNode c3]) <=>
-    storiesView (_AppState_stories state)
+    storiesView (_AppState_selectedStory state) (_AppState_stories state)
     ]
 
 commentView :: Either String HNItem -> Widget AppName
@@ -98,8 +119,8 @@ commentsTreeView padAmount tree =
                         in
                      foldl' (<=>) emptyWidget children
 
-storiesView :: [Either String HNItem] -> Widget AppName
-storiesView items =
+storiesView :: Int -> [Either String HNItem] -> Widget AppName
+storiesView selectedItem items =
   let getItemView :: HNItem -> Widget AppName
       getItemView item =
         let author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
@@ -111,12 +132,17 @@ storiesView items =
           txt title <=>
           padLeft (Pad 2) (str line)
 
-      getView :: Either String HNItem -> Widget AppName
-      getView item = case item of
-        Left error -> str ("Story could not be loaded: " ++ error) <=> hBorder
-        Right i -> getItemView i <=> hBorder
+      getView :: Int -> Either String HNItem -> Widget AppName
+      getView itemNum item =
+        let attr = if selectedItem == itemNum then selectedStoryAttr else defaultAttr
+        in 
+          case item of
+            Left error -> withAttr attr $ str ("Story could not be loaded: " ++ error) <=> hBorder
+            Right i -> withAttr attr $ getItemView i <=> hBorder
 
-      views = map getView items 
+      viewsAccum = mapAccumL (\x y -> (x+1, (getView x y))) 0 items
+      views = case viewsAccum of
+                (_, xs) -> xs
   in
     hBorder <=> foldl' (<=>) emptyWidget views
 
@@ -207,11 +233,24 @@ kidsTest = do
     Left _ -> return []
     Right i -> getHNItemKids i
 
-testGetStories = do
+storiesPerPage :: Int
+storiesPerPage = 20
+
+getInitialState :: IO AppState
+getInitialState = do
   storyIds <- getStoryIds SortTop
-  case storyIds of
-    Left error -> return [ Left error ]
-    Right ids -> do
-      let urls = map getAPIURLForItemFromID $ take 20 ids
-      items <- mapConcurrently getJSON urls
-      return items
+  items <- do
+    case storyIds of
+      Left error -> return [ Left error ]
+      Right ids -> do
+        let urls = map getAPIURLForItemFromID $ take storiesPerPage ids
+        i <- mapConcurrently getJSON urls
+        return i
+        
+  let initialState = AppState { _AppState_stories = items
+                              , _AppState_storyIds = storyIds
+                              , _AppState_selectedStory = 0
+                              , _AppState_storiesSort = SortTop
+                              }
+  return initialState
+  
