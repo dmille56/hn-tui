@@ -9,12 +9,15 @@ import Brick.Widgets.Border.Style
 import qualified Graphics.Vty as V
 
 import GHC.Generics
+import System.Process(rawSystem)
+import System.Exit
 import Data.Aeson
 import Data.Aeson.Types
 
 import Network.Wreq
 import Control.Lens
 import Control.Concurrent.Async
+import Control.Monad.IO.Class
 
 import Data.Char
 import Data.Int
@@ -29,7 +32,7 @@ data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a]
 --not currently used
 type AppName = ()
 
-data Event = QuitEvent | PreviousItem | NextItem deriving (Show)
+data Event = QuitEvent | PreviousItem | NextItem | OpenItem
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_storyIds :: Either String [HNID]
                          , _AppState_selectedStory :: Int
@@ -63,12 +66,14 @@ handleEvent :: AppState -> BrickEvent AppName Event -> EventM AppName (Next AppS
 handleEvent state (AppEvent QuitEvent) = halt state
 handleEvent state (AppEvent PreviousItem) = continue $ handleNextItemEvent state True
 handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state False
+handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'k') [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey V.KUp [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'j') [])) = handleEvent state (AppEvent NextItem)
 handleEvent state (VtyEvent (V.EvKey V.KDown [])) = handleEvent state (AppEvent NextItem)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'o') [])) = handleEvent state (AppEvent OpenItem)
 handleEvent state _ = continue state
 
 handleNextItemEvent :: AppState -> Bool -> AppState
@@ -79,6 +84,19 @@ handleNextItemEvent state previous =
         False -> min (storiesPerPage-1) $ selectedItem + 1
   in
     state { _AppState_selectedStory = nextSelectedItem }
+
+handleOpenItemEvent :: AppState -> IO AppState
+handleOpenItemEvent state = do
+  let index = _AppState_selectedStory state
+      item = _AppState_stories state !! index
+  exitCode <- case item of
+        Left error -> return ExitSuccess
+        Right i -> do
+          let url = case (_HNItem_url i) of
+                Just u -> T.unpack u
+                Nothing -> "https://news.ycombinator.com/item?id=" ++ (show (_HNItem_id i))
+          rawSystem "xdg-open" [url]
+  return state
 
 drawUI :: AppState -> [Widget AppName]
 drawUI state =

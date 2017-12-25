@@ -26,4 +26,6 @@ executable hn-tui
                        lens,
                        time,
                        async,
-                       vty
+                       vty,
+                       transformers,
+                       process
