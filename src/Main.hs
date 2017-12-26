@@ -32,11 +32,14 @@ data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a]
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
-data Event = QuitEvent | PreviousItem | NextItem | OpenItem
+data Event = QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories
+
+data AppView = StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_storyIds :: Either String [HNID]
                          , _AppState_selectedStory :: Int
                          , _AppState_storiesSort :: StoriesSortType
+                         , _AppState_view :: AppView
                          }
 
 main :: IO AppState
@@ -67,12 +70,18 @@ handleEvent state (AppEvent QuitEvent) = halt state
 handleEvent state (AppEvent PreviousItem) = continue $ handleNextItemEvent state True
 handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state False
 handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
+handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
+handleEvent state (AppEvent BackToStories) = continue $ handleBackToStoriesEvent state
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'k') [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey V.KUp [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'j') [])) = handleEvent state (AppEvent NextItem)
 handleEvent state (VtyEvent (V.EvKey V.KDown [])) = handleEvent state (AppEvent NextItem)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'l') [])) = handleEvent state (AppEvent LoadComments)
+handleEvent state (VtyEvent (V.EvKey V.KRight [])) = handleEvent state (AppEvent LoadComments)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'h') [])) = handleEvent state (AppEvent BackToStories)
+handleEvent state (VtyEvent (V.EvKey V.KLeft [])) = handleEvent state (AppEvent BackToStories)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'o') [])) = handleEvent state (AppEvent OpenItem)
 handleEvent state _ = continue state
 
@@ -98,12 +107,44 @@ handleOpenItemEvent state = do
           rawSystem "xdg-open" [url]
   return state
 
+handleLoadCommentsEvent :: AppState -> IO AppState
+handleLoadCommentsEvent state = do
+  let index = _AppState_selectedStory state
+      item = _AppState_stories state !! index
+      newState = case item of
+        Left error -> return state
+        Right i -> do
+          tree <- getHNItemKidsTree i
+          return state { _AppState_view = CommentsView i tree }
+  newState
+
+handleBackToStoriesEvent :: AppState -> AppState
+handleBackToStoriesEvent state = state { _AppState_view = StoriesView }
+
 drawUI :: AppState -> [Widget AppName]
 drawUI state = [ui]
   where ui = withBorderStyle unicode $
              vBox [ vLimit 1 $ viewport ViewportHeader Vertical $ str "|q| Quit"
-                  , viewport ViewportMain Vertical $ storiesView (_AppState_selectedStory state) (_AppState_stories state)
+                  , viewport ViewportMain Vertical $ mainView state
                   ]
+
+mainView :: AppState -> Widget AppName
+mainView state =
+  let view = _AppState_view state
+  in
+    case view of
+      StoriesView -> storiesView (_AppState_selectedStory state) (_AppState_stories state)
+      CommentsView item tree -> commentsView item tree
+
+commentsView :: HNItem -> Tree (Either String HNItem) -> Widget AppName
+commentsView item tree =
+  let title = fromMaybe "No title" $ _HNItem_title item
+      itemView = hBorder <=>
+                 txt title <=>
+                 hBorder
+    in
+  itemView <=>
+  commentsTreeView 0 tree
 
 commentView :: Either String HNItem -> Widget AppName
 commentView comment =
@@ -150,9 +191,11 @@ storiesView selectedItem items =
 
       getView :: Int -> Either String HNItem -> Widget AppName
       getView itemNum item =
-        let view = case item of
+        let view1 = case item of
                 Left error -> str ("Story could not be loaded: " ++ error) <=> hBorder
                 Right i -> getItemView i <=> hBorder
+            view = if itemNum == 0 then hBorder <=> view1
+                   else view1
         in
           if selectedItem == itemNum then visible $ withAttr selectedStoryAttr view
           else withAttr defaultAttr view
@@ -162,7 +205,7 @@ storiesView selectedItem items =
       views = case viewsAccum of
                 (_, xs) -> xs
   in
-    hBorder <=> foldl' (<=>) emptyWidget views
+    foldl' (<=>) emptyWidget views
 
 -- Data Types
 
@@ -237,6 +280,7 @@ getJSON url = do
   let item = eitherDecode body :: Either String HNItem
   return item
 
+getHNItemKids :: HNItem -> IO [Either String HNItem]
 getHNItemKids item = do
   let kidsIds = case _HNItem_kids item of
         Just xs -> xs
@@ -244,6 +288,17 @@ getHNItemKids item = do
   let urls = map getAPIURLForItemFromID kidsIds
   kids <- mapConcurrently getJSON urls
   return kids
+
+getHNItemKidsTree :: HNItem -> IO (Tree (Either String HNItem))
+--TODO: finish implementing this
+getHNItemKidsTree item = do
+  let kidsIds = case _HNItem_kids item of
+        Just xs -> xs
+        Nothing -> []
+  let urls = map getAPIURLForItemFromID kidsIds
+  kids <- mapConcurrently getJSON urls
+  let startNodes = map (\x -> LeafNode x) kids
+  return $ StartNodes startNodes
 
 kidsTest = do
   item <- getJSON jsonURL
@@ -269,6 +324,7 @@ getInitialState = do
                               , _AppState_storyIds = storyIds
                               , _AppState_selectedStory = 0
                               , _AppState_storiesSort = SortTop
+                              , _AppState_view = StoriesView
                               }
   return initialState
   
