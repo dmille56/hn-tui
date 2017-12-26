@@ -28,7 +28,13 @@ import Data.Text(Text)
 import Data.List(foldl', mapAccumL)
 import qualified Data.Text as T
 
-data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a]
+data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a] deriving (Show)
+
+instance Foldable Tree where
+  foldr f z Leaf = z
+  foldr f z (LeafNode x) = f x z
+  foldr f z (StartNodes (x:xs)) = foldr f (foldr f z (StartNodes xs)) x
+  foldr f z (Node x xs) = f x (foldr f z (StartNodes xs))
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
@@ -168,7 +174,7 @@ commentsTreeView padAmount tree =
   case tree of
     Leaf -> emptyWidget
     LeafNode c -> padLeft (Pad padAmount) $ commentView c
-    Node c xs -> let children = map (commentsTreeView (padAmount + 1)) xs
+    Node c xs -> let children = map (commentsTreeView (padAmount + 2)) xs
                      widget = padLeft (Pad padAmount) $ commentView c
                      in
                  foldl' (<=>) widget children
@@ -273,6 +279,7 @@ instance ToJSON HNItem where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = drop 8 }
 
 jsonURL = "https://hacker-news.firebaseio.com/v0/item/8863.json"
+jsonURL2 = "https://hacker-news.firebaseio.com/v0/item/16000895.json"
 
 getJSON url = do
   response <- get url
@@ -288,23 +295,51 @@ getHNItemKids item = do
   let urls = map getAPIURLForItemFromID kidsIds
   kids <- mapConcurrently getJSON urls
   return kids
+  
+getHNItemKidsRecursive :: HNID -> IO (Tree (Either String HNItem))
+getHNItemKidsRecursive id = do
+  let url = getAPIURLForItemFromID id
+  item <- getJSON url
+  case item of
+    Left _ -> return $ LeafNode item
+    Right i -> case _HNItem_kids i of
+      Nothing -> return $ LeafNode item
+      Just [] -> return $ LeafNode item
+      Just kidIds -> do
+        tree <- mapConcurrently getHNItemKidsRecursive kidIds
+        return $ Node item tree
 
 getHNItemKidsTree :: HNItem -> IO (Tree (Either String HNItem))
---TODO: finish implementing this
 getHNItemKidsTree item = do
+  let getItemKids :: Either String HNItem -> IO (Tree (Either String HNItem))
+      getItemKids it = case it of
+        Left _ -> return $ LeafNode it
+        Right i -> case _HNItem_kids i of
+          Nothing -> return $ LeafNode it
+          Just [] -> return $ LeafNode it
+          Just kidIds -> do
+            tree <- mapConcurrently getHNItemKidsRecursive kidIds
+            return $ Node it tree
+  
   let kidsIds = case _HNItem_kids item of
         Just xs -> xs
         Nothing -> []
   let urls = map getAPIURLForItemFromID kidsIds
   kids <- mapConcurrently getJSON urls
-  let startNodes = map (\x -> LeafNode x) kids
-  return $ StartNodes startNodes
+  startNodes <- mapM getItemKids kids
+  
+  case startNodes of
+    [] -> return Leaf
+    _ -> return $ StartNodes startNodes
 
 kidsTest = do
-  item <- getJSON jsonURL
+  item <- getJSON jsonURL2
   case item of
-    Left _ -> return []
-    Right i -> getHNItemKids i
+    Left _ -> return Leaf
+    Right i -> do
+      tree <- getHNItemKidsTree i
+      print tree
+      return tree
 
 storiesPerPage :: Int
 storiesPerPage = 20
