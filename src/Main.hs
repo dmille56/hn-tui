@@ -23,7 +23,7 @@ import Control.Monad.IO.Class
 import Data.Char
 import Data.Int
 import Data.Time
-import Data.Maybe(fromMaybe)
+import Data.Maybe(fromMaybe, isNothing)
 import Data.Text(Text)
 import Data.List(foldl', mapAccumL)
 import qualified Data.Text as T
@@ -44,6 +44,8 @@ data AppView = StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_storyIds :: Either String [HNID]
                          , _AppState_selectedStory :: Int
+                         , _AppState_selectedComment :: Int
+                         , _AppState_nComments :: Int
                          , _AppState_storiesSort :: StoriesSortType
                          , _AppState_view :: AppView
                          }
@@ -93,17 +95,32 @@ handleEvent state _ = continue state
 
 handleNextItemEvent :: AppState -> Bool -> AppState
 handleNextItemEvent state previous =
-  let selectedItem = _AppState_selectedStory state
+  let view = _AppState_view state
+      selectedItem = case view of
+        StoriesView -> _AppState_selectedStory state
+        CommentsView _ _ -> _AppState_selectedComment state
+      maxItem = case view of
+        StoriesView -> storiesPerPage-1
+        CommentsView _ _ -> _AppState_nComments state - 1
       nextSelectedItem = case previous of
         True -> max 0 $ selectedItem - 1
-        False -> min (storiesPerPage-1) $ selectedItem + 1
+        False -> min maxItem $ selectedItem + 1
+      nextState = case view of
+        StoriesView -> state { _AppState_selectedStory = nextSelectedItem }
+        CommentsView _ _ -> state { _AppState_selectedComment = nextSelectedItem }
   in
-    state { _AppState_selectedStory = nextSelectedItem }
+    nextState
 
 handleOpenItemEvent :: AppState -> IO AppState
 handleOpenItemEvent state = do
-  let index = _AppState_selectedStory state
-      item = _AppState_stories state !! index
+  let view = _AppState_view state
+      item = case view of
+        StoriesView -> let index = _AppState_selectedStory state
+                         in
+                       _AppState_stories state !! index
+        --TODO: finish implementing this case
+        CommentsView it comments -> Right it
+        
   exitCode <- case item of
         Left error -> return ExitSuccess
         Right i -> do
@@ -121,7 +138,10 @@ handleLoadCommentsEvent state = do
         Left error -> return state
         Right i -> do
           tree <- getHNItemKidsTree i
-          return state { _AppState_view = CommentsView i tree }
+          return state { _AppState_view = CommentsView i tree
+                       , _AppState_selectedComment = 0
+                       , _AppState_nComments = length tree
+                       }
   newState
 
 handleBackToStoriesEvent :: AppState -> AppState
@@ -158,9 +178,11 @@ commentView comment =
       getItemView item =
         let author = fromMaybe "N/A" $ _HNItem_by item
             text = fromMaybe "" $ _HNItem_text item
+            view = if isNothing (_HNItem_by item) && isNothing (_HNItem_text item) then emptyWidget
+                   else txt author <=>
+                        padLeft (Pad 1) (txt text)
         in
-          txt author <=>
-          padLeft (Pad 1) (txt text)
+          view
 
       getView :: Either String HNItem -> Widget AppName
       getView item = case item of
@@ -358,6 +380,8 @@ getInitialState = do
   let initialState = AppState { _AppState_stories = items
                               , _AppState_storyIds = storyIds
                               , _AppState_selectedStory = 0
+                              , _AppState_selectedComment = 0
+                              , _AppState_nComments = 0
                               , _AppState_storiesSort = SortTop
                               , _AppState_view = StoriesView
                               }
