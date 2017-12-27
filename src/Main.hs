@@ -180,7 +180,7 @@ commentView comment =
             text = fromMaybe "" $ _HNItem_text item
             view = if isNothing (_HNItem_by item) && isNothing (_HNItem_text item) then emptyWidget
                    else txt author <=>
-                        padLeft (Pad 1) (txt text)
+                        padLeft (Pad 1) (txtWrap text)
         in
           view
 
