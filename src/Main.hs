@@ -33,7 +33,9 @@ data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a] deriving
 instance Foldable Tree where
   foldr f z Leaf = z
   foldr f z (LeafNode x) = f x z
+  foldr f z (StartNodes []) = z
   foldr f z (StartNodes (x:xs)) = foldr f (foldr f z (StartNodes xs)) x
+  foldr f z (Node x []) = f x z
   foldr f z (Node x xs) = f x (foldr f z (StartNodes xs))
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
@@ -160,20 +162,20 @@ mainView state =
   in
     case view of
       StoriesView -> storiesView (_AppState_selectedStory state) (_AppState_stories state)
-      CommentsView item tree -> commentsView item tree
+      CommentsView item tree -> commentsView (_AppState_selectedComment state) item tree
 
-commentsView :: HNItem -> Tree (Either String HNItem) -> Widget AppName
-commentsView item tree =
+commentsView :: Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
+commentsView selectedIndex item tree =
   let title = fromMaybe "No title" $ _HNItem_title item
       itemView = hBorder <=>
                  txt title <=>
                  hBorder
     in
   itemView <=>
-  commentsTreeView 0 tree
+  commentsTreeView 0 selectedIndex 0 tree
 
-commentView :: Either String HNItem -> Widget AppName
-commentView comment =
+commentView :: Int -> Int -> Either String HNItem -> Widget AppName
+commentView selectedIndex index comment =
   let getItemView :: HNItem -> Widget AppName
       getItemView item =
         let author = fromMaybe "N/A" $ _HNItem_by item
@@ -188,19 +190,22 @@ commentView comment =
       getView item = case item of
         Left error -> border $ str ("Comment could not be loaded: " ++ error)
         Right i -> border $ getItemView i
+      
+      view = getView comment
   in
-    getView comment
+    if selectedIndex == index then visible $ withAttr selectedStoryAttr view
+    else withAttr defaultAttr view
 
-commentsTreeView :: Int -> Tree (Either String HNItem) -> Widget AppName
-commentsTreeView padAmount tree =
+commentsTreeView :: Int -> Int -> Int -> Tree (Either String HNItem) -> Widget AppName
+commentsTreeView padAmount selectedIndex index tree =
   case tree of
     Leaf -> emptyWidget
-    LeafNode c -> padLeft (Pad padAmount) $ commentView c
-    Node c xs -> let children = map (commentsTreeView (padAmount + 2)) xs
-                     widget = padLeft (Pad padAmount) $ commentView c
+    LeafNode c -> padLeft (Pad padAmount) $ commentView selectedIndex index c
+    Node c xs -> let children = map (commentsTreeView (padAmount + 2) selectedIndex index) xs
+                     widget = padLeft (Pad padAmount) $ commentView selectedIndex index c
                      in
                  foldl' (<=>) widget children
-    StartNodes xs -> let children = map (commentsTreeView (padAmount)) xs
+    StartNodes xs -> let children = map (commentsTreeView padAmount selectedIndex index) xs
                         in
                      foldl' (<=>) emptyWidget children
 
@@ -212,7 +217,7 @@ storiesView selectedItem items =
             title = fromMaybe "No title" $ _HNItem_title item
             score = fromMaybe 0 $ _HNItem_score item
             descendants = fromMaybe 0 $ _HNItem_descendants item
-            line = (show score) ++ " points by " ++ author ++ " " ++ (show descendants) ++ " comments"
+            line = show score ++ " points by " ++ author ++ " " ++ show descendants ++ " comments"
         in
           txt title <=>
           padLeft (Pad 2) (str line)
@@ -386,4 +391,3 @@ getInitialState = do
                               , _AppState_view = StoriesView
                               }
   return initialState
-  
