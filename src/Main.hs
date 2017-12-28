@@ -402,14 +402,24 @@ getInitialState = do
 
 getAppViewSelectedItem :: AppState -> Either String HNItem
 getAppViewSelectedItem state =
-  let view = _AppState_view state
+  let getCommentItem :: Int -> Tree (Either String HNItem) -> Either String HNItem
+      getCommentItem index tree =
+        let selectFunc :: (Int, Maybe (Either String HNItem)) -> Either String HNItem -> (Int, Maybe (Either String HNItem))
+            selectFunc (i, selectedItem) item = if i == index then (i+1, Just item)
+                                                else (i+1, selectedItem)
+            itemTup = foldl' selectFunc (0, Nothing) tree
+          in
+        case itemTup of
+          (_, Nothing) -> Left "Error couldn't select item"
+          (_, Just x) ->  x
+      
+      view = _AppState_view state
   in
     case view of
      StoriesView -> let index = _AppState_selectedStory state
                       in
                     _AppState_stories state !! index
-     --TODO: finish implementing this part
      CommentsView item comments -> let index = _AppState_selectedComment state
                                      in
                                    if index == 0 then Right item
-                                   else Right item
+                                   else getCommentItem (index-1) comments
