@@ -65,13 +65,15 @@ main = do
                   }
   defaultMain app initialState
 
-selectedStoryAttr, defaultAttr :: AttrName
+selectedStoryAttr, selectedCommentAttr, defaultAttr :: AttrName
 selectedStoryAttr = "selectedStory"
+selectedCommentAttr = "selectedComment"
 defaultAttr = "defaultAttr"
 
 theMap :: AttrMap
 theMap = attrMap V.defAttr
-  [ (selectedStoryAttr, V.red `on` V.white)
+  [ (selectedStoryAttr, V.red `on` V.black)
+  , (selectedCommentAttr, V.red `on` V.black)
   , (defaultAttr, V.defAttr)
   ]
 
@@ -103,7 +105,7 @@ handleNextItemEvent state previous =
         CommentsView _ _ -> _AppState_selectedComment state
       maxItem = case view of
         StoriesView -> storiesPerPage-1
-        CommentsView _ _ -> _AppState_nComments state - 1
+        CommentsView _ _ -> _AppState_nComments state
       nextSelectedItem = case previous of
         True -> max 0 $ selectedItem - 1
         False -> min maxItem $ selectedItem + 1
@@ -115,14 +117,7 @@ handleNextItemEvent state previous =
 
 handleOpenItemEvent :: AppState -> IO AppState
 handleOpenItemEvent state = do
-  let view = _AppState_view state
-      item = case view of
-        StoriesView -> let index = _AppState_selectedStory state
-                         in
-                       _AppState_stories state !! index
-        --TODO: finish implementing this case
-        CommentsView it comments -> Right it
-        
+  let item = getAppViewSelectedItem state
   exitCode <- case item of
         Left error -> return ExitSuccess
         Right i -> do
@@ -167,12 +162,18 @@ mainView state =
 commentsView :: Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
 commentsView selectedIndex item tree =
   let title = fromMaybe "No title" $ _HNItem_title item
-      itemView = hBorder <=>
-                 txt title <=>
-                 hBorder
+      text = fromMaybe "" $ _HNItem_text item
+      itemViewBase = hBorder <=>
+                     txt title <=>
+                     txtWrap text <=>
+                     hBorder
+      itemView = if selectedIndex == 0 then visible $ withAttr selectedCommentAttr itemViewBase
+                 else withAttr defaultAttr itemViewBase
+      treeView = case (commentsTreeView 0 selectedIndex 1 tree) of
+        (_, v) -> v
     in
   itemView <=>
-  commentsTreeView 0 selectedIndex 0 tree
+  treeView
 
 commentView :: Int -> Int -> Either String HNItem -> Widget AppName
 commentView selectedIndex index comment =
@@ -193,21 +194,28 @@ commentView selectedIndex index comment =
       
       view = getView comment
   in
-    if selectedIndex == index then visible $ withAttr selectedStoryAttr view
+    if selectedIndex == index then visible $ withAttr selectedCommentAttr view
     else withAttr defaultAttr view
 
-commentsTreeView :: Int -> Int -> Int -> Tree (Either String HNItem) -> Widget AppName
+commentsTreeView :: Int -> Int -> Int -> Tree (Either String HNItem) -> (Int, Widget AppName)
 commentsTreeView padAmount selectedIndex index tree =
-  case tree of
-    Leaf -> emptyWidget
-    LeafNode c -> padLeft (Pad padAmount) $ commentView selectedIndex index c
-    Node c xs -> let children = map (commentsTreeView (padAmount + 2) selectedIndex index) xs
-                     widget = padLeft (Pad padAmount) $ commentView selectedIndex index c
-                     in
-                 foldl' (<=>) widget children
-    StartNodes xs -> let children = map (commentsTreeView padAmount selectedIndex index) xs
+  let accum :: Int -> Int -> [Tree (Either String HNItem)] -> (Int, [Widget AppName])
+      accum pad idx nodes =
+        let accum2 :: Int -> Tree(Either String HNItem) -> (Int, Widget AppName)
+            accum2 i node = commentsTreeView pad selectedIndex i node
+        in
+          mapAccumL accum2 idx nodes
+  in
+    case tree of
+        Leaf -> (index+1, emptyWidget)
+        LeafNode c -> (index+1, padLeft (Pad padAmount) $ commentView selectedIndex index c)
+        Node c xs -> let (newIndex, children) = accum (padAmount+2) (index+1) xs
+                         widget = padLeft (Pad padAmount) $ commentView selectedIndex index c
                         in
-                     foldl' (<=>) emptyWidget children
+                    (newIndex, foldl' (<=>) widget children)
+        StartNodes xs -> let (newIndex, children) = accum padAmount index xs
+                            in
+                        (newIndex, foldl' (<=>) emptyWidget children)
 
 storiesView :: Int -> [Either String HNItem] -> Widget AppName
 storiesView selectedItem items =
@@ -391,3 +399,17 @@ getInitialState = do
                               , _AppState_view = StoriesView
                               }
   return initialState
+
+getAppViewSelectedItem :: AppState -> Either String HNItem
+getAppViewSelectedItem state =
+  let view = _AppState_view state
+  in
+    case view of
+     StoriesView -> let index = _AppState_selectedStory state
+                      in
+                    _AppState_stories state !! index
+     --TODO: finish implementing this part
+     CommentsView item comments -> let index = _AppState_selectedComment state
+                                     in
+                                   if index == 0 then Right item
+                                   else Right item
