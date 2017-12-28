@@ -54,7 +54,6 @@ data AppState = AppState { _AppState_stories :: [Either String HNItem]
 
 main :: IO AppState
 main = do
-  putStrLn "Loading..."
   initialState <- getInitialState
   let app :: App AppState Event AppName
       app = App { appDraw = drawUI 
@@ -72,8 +71,8 @@ defaultAttr = "defaultAttr"
 
 theMap :: AttrMap
 theMap = attrMap V.defAttr
-  [ (selectedStoryAttr, V.red `on` V.black)
-  , (selectedCommentAttr, V.red `on` V.black)
+  [ (selectedStoryAttr, fg V.red)
+  , (selectedCommentAttr, fg V.red)
   , (defaultAttr, V.defAttr)
   ]
 
@@ -312,15 +311,21 @@ instance FromJSON HNItem where
   
 instance ToJSON HNItem where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = drop 8 }
-
+  
 jsonURL = "https://hacker-news.firebaseio.com/v0/item/8863.json"
 jsonURL2 = "https://hacker-news.firebaseio.com/v0/item/16000895.json"
+jsonURL3 = "https://hacker-news.firebaseio.com/v0/item/16024245.json"
 
 getJSON url = do
   response <- get url
   let body = response ^. responseBody
   let item = eitherDecode body :: Either String HNItem
-  return item
+  let itemReplaceText = case item of
+        Left _ -> item
+        Right i -> case (_HNItem_text i) of
+                     Just x -> Right $ i { _HNItem_text = Just (replaceSequencesText x) }
+                     Nothing -> item
+  return itemReplaceText
 
 getHNItemKids :: HNItem -> IO [Either String HNItem]
 getHNItemKids item = do
@@ -423,3 +428,20 @@ getAppViewSelectedItem state =
                                      in
                                    if index == 0 then Right item
                                    else getCommentItem (index-1) comments
+
+replaceSequencesText :: Text -> Text
+--replace character sequences with the actual characters
+replaceSequencesText text =
+  let replaceFunc :: Text -> (Text, Text) -> Text
+      replaceFunc input (search, replace) = T.replace search replace input
+      
+      replaceTextList :: [(Text, Text)]
+      replaceTextList = [ ("&#x2F;", "/")
+                        , ("&#x27;", "'")
+                        , ("&quot;", "\"")
+                        , ("&gt;", ">")
+                        , ("&lt;", "<")
+                        , ("&amp;", "&")
+                        ]
+    in
+  foldl' replaceFunc text replaceTextList
