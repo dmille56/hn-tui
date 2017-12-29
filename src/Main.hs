@@ -382,7 +382,7 @@ kidsTest = do
       return tree
 
 storiesPerPage :: Int
-storiesPerPage = 20
+storiesPerPage = 30
 
 getInitialState :: IO AppState
 getInitialState = do
@@ -442,6 +442,8 @@ replaceSequencesText text =
                         , ("&gt;", ">")
                         , ("&lt;", "<")
                         , ("&amp;", "&")
+                        , ("<p>", "\n\n")
+                        , ("</p>", "")
                         ]
     in
   foldl' replaceFunc text replaceTextList
