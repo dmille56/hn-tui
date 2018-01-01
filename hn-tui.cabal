@@ -28,4 +28,5 @@ executable hn-tui
                        async,
                        vty,
                        transformers,
-                       process
+                       process,
+                       tagsoup

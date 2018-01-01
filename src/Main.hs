@@ -27,6 +27,7 @@ import Data.Maybe(fromMaybe, isNothing)
 import Data.Text(Text)
 import Data.List(foldl', mapAccumL)
 import qualified Data.Text as T
+import Text.HTML.TagSoup
 
 data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a] deriving (Show)
 
@@ -447,3 +448,45 @@ replaceSequencesText text =
                         ]
     in
   foldl' replaceFunc text replaceTextList
+
+data CommentMarkup = NormalText Text | URLText Text Text deriving (Show)
+data CommentMarkupState = NoMarkup | InATag Text deriving (Show)
+
+processComment :: Text -> (CommentMarkupState, [CommentMarkup])
+--TODO: make this work better
+processComment comment =
+  let tags = parseTags comment
+  
+      processTagsFunc :: (CommentMarkupState, [CommentMarkup]) -> Tag Text -> (CommentMarkupState, [CommentMarkup])
+      processTagsFunc (state, list) tag = case (state, tag) of
+        (NoMarkup, TagText text) -> (state, list ++ [NormalText text])
+        (NoMarkup, TagOpen "a" tags) ->
+          let filterForHrefTag (x, _) = (x == "href")
+              filtered = filter filterForHrefTag tags
+            in
+          case filtered of
+            [] -> (InATag "no url", list)
+            (x:xs) -> case x of
+              (_, url) -> (InATag url, list)
+            
+        (InATag url, TagText text) -> (NoMarkup, list ++ [URLText url text])
+        (_, TagOpen tag _) -> (NoMarkup, list)
+        (_, TagClose tag) -> (NoMarkup, list)
+        (_, _) -> (NoMarkup, list)
+        
+    in
+  foldl' processTagsFunc (NoMarkup, []) tags
+
+drawCommentText :: Text -> Widget AppName
+drawCommentText comment =
+  let (markupState, markedUpComments) = processComment comment
+
+      convertToWidget :: CommentMarkup -> Widget AppName
+      convertToWidget markup = case markup of
+        NormalText text -> txtWrap text
+        URLText link text -> hyperlink link $ txtWrap text
+
+      widgets = map convertToWidget markedUpComments
+    in
+  foldl' (<=>) emptyWidget widgets
+        
