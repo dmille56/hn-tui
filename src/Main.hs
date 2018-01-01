@@ -25,7 +25,7 @@ import Data.Int
 import Data.Time
 import Data.Maybe(fromMaybe, isNothing)
 import Data.Text(Text)
-import Data.List(foldl', mapAccumL)
+import Data.List(foldl', mapAccumL, genericReplicate)
 import qualified Data.Text as T
 import Text.HTML.TagSoup
 
@@ -41,9 +41,9 @@ instance Foldable Tree where
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
-data Event = QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories
+data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories
 
-data AppView = StoriesView | CommentsView HNItem (Tree (Either String HNItem))
+data AppView = HelpView AppView | StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_storyIds :: Either String [HNID]
                          , _AppState_selectedStory :: Int
@@ -78,7 +78,13 @@ theMap = attrMap V.defAttr
   ]
 
 handleEvent :: AppState -> BrickEvent AppName Event -> EventM AppName (Next AppState)
-handleEvent state (AppEvent QuitEvent) = halt state
+handleEvent state (AppEvent QuitEvent) =
+  let view = _AppState_view state
+    in
+  case view of
+    HelpView lastView -> continue $ state {_AppState_view = lastView }
+    _ -> halt state
+handleEvent state (AppEvent HelpEvent) = continue $ handleShowHelpEvent state
 handleEvent state (AppEvent PreviousItem) = continue $ handleNextItemEvent state True
 handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state False
 handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
@@ -95,6 +101,7 @@ handleEvent state (VtyEvent (V.EvKey V.KRight [])) = handleEvent state (AppEvent
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'h') [])) = handleEvent state (AppEvent BackToStories)
 handleEvent state (VtyEvent (V.EvKey V.KLeft [])) = handleEvent state (AppEvent BackToStories)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'o') [])) = handleEvent state (AppEvent OpenItem)
+handleEvent state (VtyEvent (V.EvKey (V.KChar '?') [])) = handleEvent state (AppEvent HelpEvent)
 handleEvent state _ = continue state
 
 handleNextItemEvent :: AppState -> Bool -> AppState
@@ -103,24 +110,29 @@ handleNextItemEvent state previous =
       selectedItem = case view of
         StoriesView -> _AppState_selectedStory state
         CommentsView _ _ -> _AppState_selectedComment state
+        HelpView _ -> 0
       maxItem = case view of
         StoriesView -> storiesPerPage-1
         CommentsView _ _ -> _AppState_nComments state
+        HelpView _ -> 0
       nextSelectedItem = case previous of
         True -> max 0 $ selectedItem - 1
         False -> min maxItem $ selectedItem + 1
       nextState = case view of
         StoriesView -> state { _AppState_selectedStory = nextSelectedItem }
         CommentsView _ _ -> state { _AppState_selectedComment = nextSelectedItem }
+        HelpView _ -> state
   in
     nextState
 
 handleOpenItemEvent :: AppState -> IO AppState
 handleOpenItemEvent state = do
   let item = getAppViewSelectedItem state
-  exitCode <- case item of
-        Left error -> return ExitSuccess
-        Right i -> do
+      view = _AppState_view state
+  exitCode <- case (view, item) of
+        (HelpView _, _) -> return ExitSuccess
+        (_, Left error) -> return ExitSuccess
+        (_, Right i) -> do
           let url = case (_HNItem_url i) of
                 Just u -> T.unpack u
                 Nothing -> "https://news.ycombinator.com/item?id=" ++ show (_HNItem_id i)
@@ -131,6 +143,7 @@ handleLoadCommentsEvent :: AppState -> IO AppState
 handleLoadCommentsEvent state = do
   let index = _AppState_selectedStory state
       item = _AppState_stories state !! index
+      view = _AppState_view state
       newState = case item of
         Left error -> return state
         Right i -> do
@@ -139,15 +152,31 @@ handleLoadCommentsEvent state = do
                        , _AppState_selectedComment = 0
                        , _AppState_nComments = length tree
                        }
-  newState
+  case view of
+    CommentsView _ _ -> return state
+    HelpView _ -> return state
+    _ -> newState
 
 handleBackToStoriesEvent :: AppState -> AppState
-handleBackToStoriesEvent state = state { _AppState_view = StoriesView }
+handleBackToStoriesEvent state =
+  let view = _AppState_view state
+    in
+  case view of
+    HelpView _ -> state
+    _ -> state { _AppState_view = StoriesView }
+
+handleShowHelpEvent :: AppState -> AppState
+handleShowHelpEvent state =
+  let previousView = _AppState_view state
+    in
+  case previousView of
+    HelpView v -> state { _AppState_view = v }
+    _ -> state { _AppState_view = HelpView previousView }
 
 drawUI :: AppState -> [Widget AppName]
 drawUI state = [ui]
   where ui = withBorderStyle unicode $
-             vBox [ vLimit 1 $ viewport ViewportHeader Vertical $ str "|q| Quit"
+             vBox [ vLimit 1 $ viewport ViewportHeader Vertical $ str "|q| Quit |?| Help"
                   , viewport ViewportMain Vertical $ mainView state
                   ]
 
@@ -158,6 +187,7 @@ mainView state =
     case view of
       StoriesView -> storiesView (_AppState_selectedStory state) (_AppState_stories state)
       CommentsView item tree -> commentsView (_AppState_selectedComment state) item tree
+      HelpView _ -> helpView
 
 commentsView :: Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
 commentsView selectedIndex item tree =
@@ -247,6 +277,27 @@ storiesView selectedItem items =
                 (_, xs) -> xs
   in
     foldl' (<=>) emptyWidget views
+
+helpView :: Widget AppName
+helpView =
+  let controlsList = [("j, ↓", "Next item")
+                     ,("k, ↑", "Previous item")
+                     ,("q", "Quit")
+                     ,("h, ←", "Go back to stories")
+                     ,("l, →", "Load the selected story & comments")
+                     ,("o", "Open the selected story/comment (by its URL) via xdg-open")
+                     ,("?", "Toggle help display")
+                     ]
+
+      controlsFunc :: (Widget AppName, Widget AppName) -> (Text, Text) -> (Widget AppName, Widget AppName)
+      controlsFunc (leftWidget, rightWidget) (leftText, rightText) = (leftWidget <=> txt leftText, rightWidget <=> txt rightText)
+
+      (leftWidget, rightWidget) = foldl' controlsFunc (emptyWidget, emptyWidget) controlsList
+      sepMap = map (\x -> txt x) $ genericReplicate (length controlsList) " | "
+      sepWidget = foldl' (<=>) emptyWidget sepMap
+    in
+  borderWithLabel (str "Help") $ (leftWidget <+> sepWidget <+> rightWidget)
+  
 
 -- Data Types
 
@@ -489,6 +540,7 @@ processComment comment =
             
         (InATag url, TagText text) -> (NoMarkup, list ++ [URLText url text])
         (_, TagOpen tag _) -> (NoMarkup, list)
+        (_, TagClose "a") -> (NoMarkup, list)
         (_, TagClose tag) -> (NoMarkup, list)
         (_, _) -> (NoMarkup, list)
         
