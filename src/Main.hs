@@ -41,11 +41,12 @@ instance Foldable Tree where
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
-data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories
+data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories
 
 data AppView = HelpView AppView | StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_storyIds :: Either String [HNID]
+                         , _AppState_loadedStoryNum :: Int
                          , _AppState_selectedStory :: Int
                          , _AppState_selectedComment :: Int
                          , _AppState_nComments :: Int
@@ -87,6 +88,8 @@ handleEvent state (AppEvent QuitEvent) =
 handleEvent state (AppEvent HelpEvent) = continue $ handleShowHelpEvent state
 handleEvent state (AppEvent PreviousItem) = continue $ handleNextItemEvent state True
 handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state False
+handleEvent state (AppEvent LoadPreviousStories) = liftIO (handleNextStoriesEvent state True) >>= continue 
+handleEvent state (AppEvent LoadNextStories) = liftIO (handleNextStoriesEvent state False) >>= continue 
 handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
 handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
 handleEvent state (AppEvent BackToStories) = continue $ handleBackToStoriesEvent state
@@ -102,7 +105,29 @@ handleEvent state (VtyEvent (V.EvKey (V.KChar 'h') [])) = handleEvent state (App
 handleEvent state (VtyEvent (V.EvKey V.KLeft [])) = handleEvent state (AppEvent BackToStories)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'o') [])) = handleEvent state (AppEvent OpenItem)
 handleEvent state (VtyEvent (V.EvKey (V.KChar '?') [])) = handleEvent state (AppEvent HelpEvent)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'n') [])) = handleEvent state (AppEvent LoadNextStories)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'p') [])) = handleEvent state (AppEvent LoadPreviousStories)
 handleEvent state _ = continue state
+
+handleNextStoriesEvent :: AppState -> Bool -> IO AppState
+handleNextStoriesEvent state previous = do
+  let view = _AppState_view state
+      indexDiff = case previous of
+        True -> -storiesPerPage
+        False -> storiesPerPage
+      storyIds =  case (_AppState_storyIds state) of
+        Left _ -> []
+        Right xs -> xs
+      storyStartNum = max 0 $ min (length storyIds) $ (_AppState_loadedStoryNum state) + indexDiff
+      storyIdsToGet = take storiesPerPage $ drop storyStartNum storyIds
+      urls = map getAPIURLForItemFromID storyIdsToGet
+      
+  case view of
+    StoriesView -> do
+      stories <- mapConcurrently getJSON urls
+      return state { _AppState_stories = stories, _AppState_loadedStoryNum = storyStartNum }
+      
+    _ -> return state
 
 handleNextItemEvent :: AppState -> Bool -> AppState
 handleNextItemEvent state previous =
@@ -287,6 +312,8 @@ helpView =
                      ,("l, →", "Load the selected story & comments")
                      ,("o", "Open the selected story/comment (by its URL) via xdg-open")
                      ,("?", "Toggle help display")
+                     ,("n", "Load next page of stories")
+                     ,("p", "Load previous page of stories")
                      ]
 
       controlsFunc :: (Widget AppName, Widget AppName) -> (Text, Text) -> (Widget AppName, Widget AppName)
@@ -467,6 +494,7 @@ getInitialState = do
         
   let initialState = AppState { _AppState_stories = items
                               , _AppState_storyIds = storyIds
+                              , _AppState_loadedStoryNum = 0
                               , _AppState_selectedStory = 0
                               , _AppState_selectedComment = 0
                               , _AppState_nComments = 0
