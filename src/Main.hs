@@ -41,7 +41,7 @@ instance Foldable Tree where
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
-data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories
+data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories | LoadStories StoriesSortType
 
 data AppView = HelpView AppView | StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
@@ -50,6 +50,7 @@ data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_selectedStory :: Int
                          , _AppState_selectedComment :: Int
                          , _AppState_nComments :: Int
+                         , _AppState_nStories :: Int
                          , _AppState_storiesSort :: StoriesSortType
                          , _AppState_view :: AppView
                          }
@@ -90,6 +91,7 @@ handleEvent state (AppEvent PreviousItem) = continue $ handleNextItemEvent state
 handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state False
 handleEvent state (AppEvent LoadPreviousStories) = liftIO (handleNextStoriesEvent state True) >>= continue 
 handleEvent state (AppEvent LoadNextStories) = liftIO (handleNextStoriesEvent state False) >>= continue 
+handleEvent state (AppEvent (LoadStories sort)) = liftIO (handleLoadStoriesEvent state sort) >>= continue 
 handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
 handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
 handleEvent state (AppEvent BackToStories) = continue $ handleBackToStoriesEvent state
@@ -107,7 +109,38 @@ handleEvent state (VtyEvent (V.EvKey (V.KChar 'o') [])) = handleEvent state (App
 handleEvent state (VtyEvent (V.EvKey (V.KChar '?') [])) = handleEvent state (AppEvent HelpEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'n') [])) = handleEvent state (AppEvent LoadNextStories)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'p') [])) = handleEvent state (AppEvent LoadPreviousStories)
+handleEvent state (VtyEvent (V.EvKey (V.KChar '1') [])) = handleEvent state (AppEvent (LoadStories SortTop))
+handleEvent state (VtyEvent (V.EvKey (V.KChar '2') [])) = handleEvent state (AppEvent (LoadStories SortBest))
+handleEvent state (VtyEvent (V.EvKey (V.KChar '3') [])) = handleEvent state (AppEvent (LoadStories SortNew))
+handleEvent state (VtyEvent (V.EvKey (V.KChar '4') [])) = handleEvent state (AppEvent (LoadStories SortAsk))
+handleEvent state (VtyEvent (V.EvKey (V.KChar '5') [])) = handleEvent state (AppEvent (LoadStories SortShow))
+handleEvent state (VtyEvent (V.EvKey (V.KChar '6') [])) = handleEvent state (AppEvent (LoadStories SortJob))
 handleEvent state _ = continue state
+
+handleLoadStoriesEvent :: AppState -> StoriesSortType -> IO AppState
+handleLoadStoriesEvent state sort = 
+  let view = _AppState_view state
+    in
+  case view of
+    StoriesView -> do
+      storyIds <- getStoryIds sort
+      items <- do
+        case storyIds of
+          Left error -> return [ Left error ]
+          Right ids -> do
+            let urls = map getAPIURLForItemFromID $ take storiesPerPage ids
+            i <- mapConcurrently getJSON urls
+            return i
+
+      return state { _AppState_storyIds = storyIds
+                   , _AppState_stories = items 
+                   , _AppState_loadedStoryNum = 0
+                   , _AppState_selectedStory = 0
+                   , _AppState_storiesSort = sort
+                   , _AppState_nStories = length (items)
+                   }
+
+    _ -> return state
 
 handleNextStoriesEvent :: AppState -> Bool -> IO AppState
 handleNextStoriesEvent state previous = do
@@ -118,14 +151,17 @@ handleNextStoriesEvent state previous = do
       storyIds =  case (_AppState_storyIds state) of
         Left _ -> []
         Right xs -> xs
-      storyStartNum = max 0 $ min (length storyIds) $ (_AppState_loadedStoryNum state) + indexDiff
+      storyStartNum = max 0 $ min ((length storyIds) - storiesPerPage) $ (_AppState_loadedStoryNum state) + indexDiff
       storyIdsToGet = take storiesPerPage $ drop storyStartNum storyIds
       urls = map getAPIURLForItemFromID storyIdsToGet
       
   case view of
     StoriesView -> do
       stories <- mapConcurrently getJSON urls
-      return state { _AppState_stories = stories, _AppState_loadedStoryNum = storyStartNum }
+      return state { _AppState_stories = stories
+                   , _AppState_loadedStoryNum = storyStartNum
+                   , _AppState_nStories = length (stories)
+                   }
       
     _ -> return state
 
@@ -137,7 +173,7 @@ handleNextItemEvent state previous =
         CommentsView _ _ -> _AppState_selectedComment state
         HelpView _ -> 0
       maxItem = case view of
-        StoriesView -> storiesPerPage-1
+        StoriesView -> (_AppState_nStories state) - 1
         CommentsView _ _ -> _AppState_nComments state
         HelpView _ -> 0
       nextSelectedItem = case previous of
@@ -314,6 +350,12 @@ helpView =
                      ,("?", "Toggle help display")
                      ,("n", "Load next page of stories")
                      ,("p", "Load previous page of stories")
+                     ,("1", "Load stories sorted by top")
+                     ,("2", "Load stories sorted by best")
+                     ,("3", "Load stories sorted by new")
+                     ,("4", "Load ask stories ")
+                     ,("5", "Load show stories")
+                     ,("6", "Load job stories")
                      ]
 
       controlsFunc :: (Widget AppName, Widget AppName) -> (Text, Text) -> (Widget AppName, Widget AppName)
@@ -498,6 +540,7 @@ getInitialState = do
                               , _AppState_selectedStory = 0
                               , _AppState_selectedComment = 0
                               , _AppState_nComments = 0
+                              , _AppState_nStories = length (items)
                               , _AppState_storiesSort = SortTop
                               , _AppState_view = StoriesView
                               }
