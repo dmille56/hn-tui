@@ -41,7 +41,7 @@ instance Foldable Tree where
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
-data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories | LoadStories StoriesSortType
+data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories | LoadStories StoriesSortType | RefreshEvent
 
 data AppView = HelpView AppView | StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 data AppState = AppState { _AppState_stories :: [Either String HNItem]
@@ -94,6 +94,7 @@ handleEvent state (AppEvent LoadNextStories) = liftIO (handleNextStoriesEvent st
 handleEvent state (AppEvent (LoadStories sort)) = liftIO (handleLoadStoriesEvent state sort) >>= continue 
 handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
 handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
+handleEvent state (AppEvent RefreshEvent) = liftIO (handleRefreshEvent state) >>= continue
 handleEvent state (AppEvent BackToStories) = continue $ handleBackToStoriesEvent state
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
@@ -115,7 +116,18 @@ handleEvent state (VtyEvent (V.EvKey (V.KChar '3') [])) = handleEvent state (App
 handleEvent state (VtyEvent (V.EvKey (V.KChar '4') [])) = handleEvent state (AppEvent (LoadStories SortAsk))
 handleEvent state (VtyEvent (V.EvKey (V.KChar '5') [])) = handleEvent state (AppEvent (LoadStories SortShow))
 handleEvent state (VtyEvent (V.EvKey (V.KChar '6') [])) = handleEvent state (AppEvent (LoadStories SortJob))
+handleEvent state (VtyEvent (V.EvKey (V.KFun 5) [])) = handleEvent state (AppEvent RefreshEvent)
 handleEvent state _ = continue state
+
+handleRefreshEvent :: AppState -> IO AppState
+handleRefreshEvent state =
+  let view = _AppState_view state
+      sort = _AppState_storiesSort state
+    in
+  case view of
+    HelpView _ -> return state
+    StoriesView -> handleLoadStoriesEvent state sort
+    CommentsView _ _ -> handleLoadCommentsEvent $ state { _AppState_view = StoriesView }
 
 handleLoadStoriesEvent :: AppState -> StoriesSortType -> IO AppState
 handleLoadStoriesEvent state sort = 
@@ -356,6 +368,7 @@ helpView =
                      ,("4", "Load ask stories ")
                      ,("5", "Load show stories")
                      ,("6", "Load job stories")
+                     ,("F5", "Refresh the current view")
                      ]
 
       controlsFunc :: (Widget AppName, Widget AppName) -> (Text, Text) -> (Widget AppName, Widget AppName)
