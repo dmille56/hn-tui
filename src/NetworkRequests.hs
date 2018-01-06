@@ -9,9 +9,13 @@ import Data.List(foldl')
 import qualified Data.Text as T
 import Data.Aeson
 import Network.Wreq
+import Control.Exception (throwIO)
 import Control.Lens
 import Control.Concurrent.Async
+import qualified Network.HTTP.Req as R
+import Control.Monad.IO.Class
 
+apiItemURL, apiTopStoriesURL, apiBestStoriesURL, apiNewStoriesURL, apiAskStoriesURL, apiShowStoriesURL, apiJobStoriesURL :: String
 apiItemURL = "https://hacker-news.firebaseio.com/v0/item/"
 apiTopStoriesURL = "https://hacker-news.firebaseio.com/v0/topstories.json"
 apiBestStoriesURL = "https://hacker-news.firebaseio.com/v0/beststories.json"
@@ -19,41 +23,88 @@ apiNewStoriesURL = "https://hacker-news.firebaseio.com/v0/newstories.json"
 apiAskStoriesURL = "https://hacker-news.firebaseio.com/v0/askstories.json"
 apiShowStoriesURL = "https://hacker-news.firebaseio.com/v0/showstories.json"
 apiJobStoriesURL = "https://hacker-news.firebaseio.com/v0/jobstories.json"
+apiBaseURL = "hacker-news.firebaseio.com"
+apiVersion = "v0"
 
 getStoryIds :: StoriesSortType -> IO (Either String [HNID])
-getStoryIds sortType = let url = case sortType of
+getStoryIds sortType = let url :: String
+                           url = case sortType of
                              SortTop -> apiTopStoriesURL
                              SortBest -> apiBestStoriesURL
                              SortNew -> apiNewStoriesURL
                              SortAsk -> apiAskStoriesURL
                              SortShow -> apiShowStoriesURL
                              SortJob -> apiJobStoriesURL
-                        in
-                       do
+                        in do
                          response <- get url
-                         let body = response ^. responseBody
-                         return (eitherDecode body :: Either String [HNID])
+                         return (eitherDecode' (response ^. responseBody) :: Either String [HNID])
+
+instance R.MonadHttp IO where
+  handleHttpException = throwIO
+
+getStoryIds2 :: StoriesSortType -> IO (Either String [HNID])
+getStoryIds2 sortType = let apiText :: Text
+                            apiText = case sortType of
+                              SortTop -> "topstories.json"
+                              SortBest -> "beststories.json"
+                              SortNew -> "newstories.json"
+                              SortAsk -> "askstories.json"
+                              SortShow -> "showstories.json"
+                              SortJob -> "jobstories.json"
+                         in do
+  r <- R.req R.GET
+    (R.https apiBaseURL R./: apiVersion R./: apiText) R.NoReqBody R.bsResponse mempty
+  let maybe = decodeStrict' (R.responseBody r) :: Maybe [HNID]
+      result = case maybe of
+                 Just x -> Right x
+                 Nothing -> Left "Error couldn't deserialize json"
+  return result
 
 getAPIURLForItemFromID :: HNID -> String
 getAPIURLForItemFromID id = apiItemURL ++ (show id) ++ ".json"
 
+getJSON :: String -> IO (Either String HNItem)
 getJSON url = do
   response <- get url
+  
   let body = response ^. responseBody
-  let item = eitherDecode body :: Either String HNItem
-  let itemReplaceText = case item of
+  
+      item :: Either String HNItem
+      item = eitherDecode body
+
+      itemReplaceText :: Either String HNItem
+      itemReplaceText = case item of
         Left _ -> item
         Right i -> case (_HNItem_text i) of
                      Just x -> Right $ i { _HNItem_text = Just (replaceSequencesText x) }
                      Nothing -> item
   return itemReplaceText
 
+getJSON2 :: HNID -> IO (Either String HNItem)
+getJSON2 id = do
+  r <- R.req R.GET
+    (R.https apiBaseURL R./: apiVersion R./: "item" R./: T.pack ((show id) ++ ".json")) R.NoReqBody R.bsResponse mempty
+    
+  let maybe = decodeStrict' (R.responseBody r) :: Maybe HNItem
+      result = case maybe of
+                 Just x -> case (_HNItem_text x) of
+                   Just i -> Right $ x { _HNItem_text = Just (replaceSequencesText i) }
+                   Nothing -> Right x
+                   
+                 Nothing -> Left "Error couldn't deserialize json into HNItem"
+
+  return result
+
 getHNItemKids :: HNItem -> IO [Either String HNItem]
 getHNItemKids item = do
-  let kidsIds = case _HNItem_kids item of
+  let kidsIds :: [HNID]
+      kidsIds = case _HNItem_kids item of
         Just xs -> xs
         Nothing -> []
-  let urls = map getAPIURLForItemFromID kidsIds
+
+      urls :: [String]
+      urls = map getAPIURLForItemFromID kidsIds
+      
   kids <- mapConcurrently getJSON urls
   return kids
 
@@ -71,7 +122,7 @@ isCommentValid (Right item) =
 getHNItemKidsRecursive :: HNID -> IO (Tree (Either String HNItem))
 getHNItemKidsRecursive id = do
   let url = getAPIURLForItemFromID id
-  item <- getJSON url
+  item <- getJSON2 id
   let valid = isCommentValid item
   case (valid, item) of
     (False, _) -> return $ Leaf
@@ -103,7 +154,7 @@ getHNItemKidsTree item = do
         Just xs -> xs
         Nothing -> []
   let urls = map getAPIURLForItemFromID kidsIds
-  kids <- mapConcurrently getJSON urls
+  kids <- mapConcurrently getJSON2 kidsIds
   let filteredKids = filter isCommentValid kids
   startNodes <- mapM getItemKids filteredKids
   

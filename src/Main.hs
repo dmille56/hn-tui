@@ -2,7 +2,7 @@ module Main where
 
 import DataTypes(AppState(..), StoriesSortType(..), Event(..), AppName(..), AppView(..), storiesPerPage)
 import Events(handleEvent)
-import NetworkRequests(getStoryIds, getAPIURLForItemFromID, getJSON)
+import NetworkRequests
 import View(drawUI, theMap)
 
 import Brick
@@ -22,13 +22,13 @@ main = do
 
 getInitialState :: IO AppState
 getInitialState = do
-  storyIds <- getStoryIds SortTop
+  storyIds <- getStoryIds2 SortTop
   items <- do
     case storyIds of
       Left error -> return [ Left error ]
       Right ids -> do
         let urls = map getAPIURLForItemFromID $ take storiesPerPage ids
-        i <- mapConcurrently getJSON urls
+        i <- mapConcurrently getJSON2 $ take storiesPerPage ids
         return i
         
   let initialState = AppState { _AppState_stories = items

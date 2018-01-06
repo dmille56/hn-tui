@@ -30,4 +30,5 @@ executable hn-tui
                        vty,
                        transformers,
                        process,
-                       tagsoup
+                       tagsoup,
+                       req
