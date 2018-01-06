@@ -22,13 +22,12 @@ main = do
 
 getInitialState :: IO AppState
 getInitialState = do
-  storyIds <- getStoryIds2 SortTop
+  storyIds <- getStoryIds SortTop
   items <- do
     case storyIds of
       Left error -> return [ Left error ]
       Right ids -> do
-        let urls = map getAPIURLForItemFromID $ take storiesPerPage ids
-        i <- mapConcurrently getJSON2 $ take storiesPerPage ids
+        i <- mapConcurrently getJSON $ take storiesPerPage ids
         return i
         
   let initialState = AppState { _AppState_stories = items

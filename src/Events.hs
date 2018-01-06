@@ -70,13 +70,12 @@ handleLoadStoriesEvent state sort =
     in
   case view of
     StoriesView -> do
-      storyIds <- getStoryIds2 sort
+      storyIds <- getStoryIds sort
       items <- do
         case storyIds of
           Left error -> return [ Left error ]
           Right ids -> do
-            let urls = map getAPIURLForItemFromID $ take storiesPerPage ids
-            i <- mapConcurrently getJSON2 $ take storiesPerPage ids
+            i <- mapConcurrently getJSON $ take storiesPerPage ids
             return i
 
       return state { _AppState_storyIds = storyIds
@@ -100,11 +99,10 @@ handleNextStoriesEvent state previous = do
         Right xs -> xs
       storyStartNum = max 0 $ min ((length storyIds) - storiesPerPage) $ (_AppState_loadedStoryNum state) + indexDiff
       storyIdsToGet = take storiesPerPage $ drop storyStartNum storyIds
-      urls = map getAPIURLForItemFromID storyIdsToGet
       
   case view of
     StoriesView -> do
-      stories <- mapConcurrently getJSON2 storyIdsToGet
+      stories <- mapConcurrently getJSON storyIdsToGet
       return state { _AppState_stories = stories
                    , _AppState_loadedStoryNum = storyStartNum
                    , _AppState_nStories = length (stories)

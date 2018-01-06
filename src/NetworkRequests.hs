@@ -8,84 +8,57 @@ import Data.Text(Text)
 import Data.List(foldl')
 import qualified Data.Text as T
 import Data.Aeson
-import Network.Wreq
 import Control.Exception (throwIO)
-import Control.Lens
 import Control.Concurrent.Async
 import qualified Network.HTTP.Req as R
 import Control.Monad.IO.Class
 
-apiItemURL, apiTopStoriesURL, apiBestStoriesURL, apiNewStoriesURL, apiAskStoriesURL, apiShowStoriesURL, apiJobStoriesURL :: String
-apiItemURL = "https://hacker-news.firebaseio.com/v0/item/"
-apiTopStoriesURL = "https://hacker-news.firebaseio.com/v0/topstories.json"
-apiBestStoriesURL = "https://hacker-news.firebaseio.com/v0/beststories.json"
-apiNewStoriesURL = "https://hacker-news.firebaseio.com/v0/newstories.json"
-apiAskStoriesURL = "https://hacker-news.firebaseio.com/v0/askstories.json"
-apiShowStoriesURL = "https://hacker-news.firebaseio.com/v0/showstories.json"
-apiJobStoriesURL = "https://hacker-news.firebaseio.com/v0/jobstories.json"
+apiBaseURL, apiVersion, apiSortTop, apiSortBest, apiSortNew, apiSortAsk, apiSortShow, apiSortJob, apiItem :: Text
 apiBaseURL = "hacker-news.firebaseio.com"
 apiVersion = "v0"
+apiSortTop = "topstories.json"
+apiSortBest = "beststories.json"
+apiSortNew = "newstories.json"
+apiSortAsk = "askstories.json"
+apiSortShow = "showstories.json"
+apiSortJob = "jobstories.json"
+apiItem = "item"
 
-getStoryIds :: StoriesSortType -> IO (Either String [HNID])
-getStoryIds sortType = let url :: String
-                           url = case sortType of
-                             SortTop -> apiTopStoriesURL
-                             SortBest -> apiBestStoriesURL
-                             SortNew -> apiNewStoriesURL
-                             SortAsk -> apiAskStoriesURL
-                             SortShow -> apiShowStoriesURL
-                             SortJob -> apiJobStoriesURL
-                        in do
-                         response <- get url
-                         return (eitherDecode' (response ^. responseBody) :: Either String [HNID])
-
+--TODO: maybe handle http exceptions in the future?
 instance R.MonadHttp IO where
   handleHttpException = throwIO
 
-getStoryIds2 :: StoriesSortType -> IO (Either String [HNID])
-getStoryIds2 sortType = let apiText :: Text
-                            apiText = case sortType of
-                              SortTop -> "topstories.json"
-                              SortBest -> "beststories.json"
-                              SortNew -> "newstories.json"
-                              SortAsk -> "askstories.json"
-                              SortShow -> "showstories.json"
-                              SortJob -> "jobstories.json"
+getStoryIds :: StoriesSortType -> IO (Either String [HNID])
+getStoryIds sortType = let apiText :: Text
+                           apiText = case sortType of
+                              SortTop -> apiSortTop
+                              SortBest -> apiSortBest
+                              SortNew -> apiSortNew
+                              SortAsk -> apiSortAsk
+                              SortShow -> apiSortShow
+                              SortJob -> apiSortJob 
                          in do
   r <- R.req R.GET
     (R.https apiBaseURL R./: apiVersion R./: apiText) R.NoReqBody R.bsResponse mempty
-  let maybe = decodeStrict' (R.responseBody r) :: Maybe [HNID]
+    
+  let maybe :: Maybe [HNID]
+      maybe = decodeStrict' (R.responseBody r) :: Maybe [HNID]
+
+      result :: Either String [HNID]
       result = case maybe of
                  Just x -> Right x
-                 Nothing -> Left "Error couldn't deserialize json"
+                 Nothing -> Left "Error couldn't deserialize json into StoryItems"
   return result
 
-getAPIURLForItemFromID :: HNID -> String
-getAPIURLForItemFromID id = apiItemURL ++ (show id) ++ ".json"
-
-getJSON :: String -> IO (Either String HNItem)
-getJSON url = do
-  response <- get url
-  
-  let body = response ^. responseBody
-  
-      item :: Either String HNItem
-      item = eitherDecode body
-
-      itemReplaceText :: Either String HNItem
-      itemReplaceText = case item of
-        Left _ -> item
-        Right i -> case (_HNItem_text i) of
-                     Just x -> Right $ i { _HNItem_text = Just (replaceSequencesText x) }
-                     Nothing -> item
-  return itemReplaceText
-
-getJSON2 :: HNID -> IO (Either String HNItem)
-getJSON2 id = do
+getJSON :: HNID -> IO (Either String HNItem)
+getJSON id = do
   r <- R.req R.GET
-    (R.https apiBaseURL R./: apiVersion R./: "item" R./: T.pack ((show id) ++ ".json")) R.NoReqBody R.bsResponse mempty
+    (R.https apiBaseURL R./: apiVersion R./: apiItem R./: T.pack ((show id) ++ ".json")) R.NoReqBody R.bsResponse mempty
     
-  let maybe = decodeStrict' (R.responseBody r) :: Maybe HNItem
+  let maybe :: Maybe HNItem
+      maybe = decodeStrict' (R.responseBody r) :: Maybe HNItem
+
+      result :: Either String HNItem
       result = case maybe of
                  Just x -> case (_HNItem_text x) of
                    Just i -> Right $ x { _HNItem_text = Just (replaceSequencesText i) }
@@ -101,18 +74,19 @@ getHNItemKids item = do
       kidsIds = case _HNItem_kids item of
         Just xs -> xs
         Nothing -> []
-
-      urls :: [String]
-      urls = map getAPIURLForItemFromID kidsIds
       
-  kids <- mapConcurrently getJSON urls
-  return kids
+  liftIO $ mapConcurrently getJSON kidsIds
 
 isCommentValid :: Either String HNItem -> Bool
 isCommentValid (Left e) = True
 isCommentValid (Right item) =
-  let text = _HNItem_text item
+  let text :: Maybe Text
+      text = _HNItem_text item
+
+      author :: Maybe Text
       author = _HNItem_by item
+
+      itemType :: HNType 
       itemType = _HNItem_type item
     in
   case (text, author, itemType) of
@@ -121,9 +95,9 @@ isCommentValid (Right item) =
   
 getHNItemKidsRecursive :: HNID -> IO (Tree (Either String HNItem))
 getHNItemKidsRecursive id = do
-  let url = getAPIURLForItemFromID id
-  item <- getJSON2 id
-  let valid = isCommentValid item
+  item <- getJSON id
+  let valid :: Bool
+      valid = isCommentValid item
   case (valid, item) of
     (False, _) -> return $ Leaf
     (_, Left _) -> return $ LeafNode item
@@ -138,7 +112,8 @@ getHNItemKidsTree :: HNItem -> IO (Tree (Either String HNItem))
 getHNItemKidsTree item = do
   let getItemKids :: Either String HNItem -> IO (Tree (Either String HNItem))
       getItemKids it =
-        let valid = isCommentValid it
+        let valid :: Bool
+            valid = isCommentValid it
           in
         case (valid, it) of
           (False, _) -> return $ Leaf
@@ -150,12 +125,13 @@ getHNItemKidsTree item = do
                 tree <- mapConcurrently getHNItemKidsRecursive kidIds
                 return $ Node it tree
   
-  let kidsIds = case _HNItem_kids item of
+  let kidsIds :: [HNID]
+      kidsIds = case _HNItem_kids item of
         Just xs -> xs
         Nothing -> []
-  let urls = map getAPIURLForItemFromID kidsIds
-  kids <- mapConcurrently getJSON2 kidsIds
-  let filteredKids = filter isCommentValid kids
+  kids <- mapConcurrently getJSON kidsIds
+  let filteredKids :: [Either String HNItem]
+      filteredKids = filter isCommentValid kids
   startNodes <- mapM getItemKids filteredKids
   
   case startNodes of

@@ -38,7 +38,9 @@ data AppState = AppState { _AppState_stories :: [Either String HNItem]
                 
 data StoriesSortType = SortTop | SortBest | SortNew | SortAsk | SortShow | SortJob
 
-type HNID = Int64
+type HNID = Integer
+
+type HNTime = Integer
 
 data HNType = HNStory | HNComment | HNJob | HNPoll | HNPollopt deriving (Generic, Show)
 
@@ -53,7 +55,7 @@ data HNItem = HNItem {
   _HNItem_id :: HNID,
   _HNItem_deleted :: Maybe Bool,
   _HNItem_by :: Maybe Text,
-  _HNItem_time :: Int64,
+  _HNItem_time :: HNTime,
   _HNItem_text :: Maybe Text,
   _HNItem_dead :: Maybe Bool,
   _HNItem_parent :: Maybe HNID,

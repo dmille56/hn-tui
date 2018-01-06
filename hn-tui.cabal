@@ -23,8 +23,6 @@ executable hn-tui
                        brick,
                        text,
                        aeson,
-                       wreq,
-                       lens,
                        time,
                        async,
                        vty,
