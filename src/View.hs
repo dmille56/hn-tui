@@ -151,7 +151,7 @@ helpView =
                      ,("4", "Load ask stories ")
                      ,("5", "Load show stories")
                      ,("6", "Load job stories")
-                     ,("F5", "Refresh the current view")
+                     ,("F5, r", "Refresh the current view")
                      ]
 
       controlsFunc :: (Widget AppName, Widget AppName) -> (Text, Text) -> (Widget AppName, Widget AppName)

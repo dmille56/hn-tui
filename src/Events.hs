@@ -52,6 +52,7 @@ handleEvent state (VtyEvent (V.EvKey (V.KChar '4') [])) = handleEvent state (App
 handleEvent state (VtyEvent (V.EvKey (V.KChar '5') [])) = handleEvent state (AppEvent (LoadStories SortShow))
 handleEvent state (VtyEvent (V.EvKey (V.KChar '6') [])) = handleEvent state (AppEvent (LoadStories SortJob))
 handleEvent state (VtyEvent (V.EvKey (V.KFun 5) [])) = handleEvent state (AppEvent RefreshEvent)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'r') [])) = handleEvent state (AppEvent RefreshEvent)
 handleEvent state _ = continue state
 
 handleRefreshEvent :: AppState -> IO AppState
@@ -106,6 +107,7 @@ handleNextStoriesEvent state previous = do
       return state { _AppState_stories = stories
                    , _AppState_loadedStoryNum = storyStartNum
                    , _AppState_nStories = length (stories)
+                   , _AppState_selectedStory = 0
                    }
       
     _ -> return state
