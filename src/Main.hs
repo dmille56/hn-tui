@@ -7,6 +7,7 @@ import View(drawUI, theMap)
 
 import Brick
 import Control.Concurrent.Async
+import Data.Time
 
 main :: IO AppState
 main = do
@@ -29,7 +30,9 @@ getInitialState = do
       Right ids -> do
         i <- mapConcurrently getJSON $ take storiesPerPage ids
         return i
-        
+
+  time <- getCurrentTime
+  
   let initialState = AppState { _AppState_stories = items
                               , _AppState_storyIds = storyIds
                               , _AppState_loadedStoryNum = 0
@@ -39,5 +42,6 @@ getInitialState = do
                               , _AppState_nStories = length (items)
                               , _AppState_storiesSort = SortTop
                               , _AppState_view = StoriesView
+                              , _AppState_time = time
                               }
   return initialState

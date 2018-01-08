@@ -12,6 +12,8 @@ import Brick.Widgets.Border.Style
 import Data.Maybe(fromMaybe, isNothing)
 import Data.Text(Text)
 import Data.List(foldl', mapAccumL, genericReplicate)
+import Data.Time
+import Data.Time.Clock.POSIX
 
 import Text.HTML.TagSoup
 import qualified Graphics.Vty as V
@@ -39,14 +41,15 @@ drawUI state = [ui]
 mainView :: AppState -> Widget AppName
 mainView state =
   let view = _AppState_view state
+      time = _AppState_time state
   in
     case view of
-      StoriesView -> storiesView (_AppState_selectedStory state) (_AppState_stories state)
-      CommentsView item tree -> commentsView (_AppState_selectedComment state) item tree
+      StoriesView -> storiesView time (_AppState_selectedStory state) (_AppState_stories state)
+      CommentsView item tree -> commentsView time (_AppState_selectedComment state) item tree
       HelpView _ -> helpView
 
-commentsView :: Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
-commentsView selectedIndex item tree =
+commentsView :: UTCTime -> Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
+commentsView time selectedIndex item tree =
   let title = fromMaybe "No title" $ _HNItem_title item
       text = fromMaybe "" $ _HNItem_text item
       itemViewBase = hBorder <=>
@@ -55,20 +58,23 @@ commentsView selectedIndex item tree =
                      hBorder
       itemView = if selectedIndex == 0 then visible $ withAttr selectedCommentAttr itemViewBase
                  else withAttr defaultAttr itemViewBase
-      treeView = case (commentsTreeView 0 selectedIndex 1 tree) of
+      treeView = case (commentsTreeView time 0 selectedIndex 1 tree) of
         (_, v) -> v
     in
   itemView <=>
   treeView
 
-commentView :: Int -> Int -> Either String HNItem -> Widget AppName
-commentView selectedIndex index comment =
+commentView :: UTCTime -> Int -> Int -> Either String HNItem -> Widget AppName
+commentView time selectedIndex index comment =
   let getItemView :: HNItem -> Widget AppName
       getItemView item =
-        let author = fromMaybe "N/A" $ _HNItem_by item
+        let author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
             text = fromMaybe "" $ _HNItem_text item
+            commentTime = posixSecondsToUTCTime $ _HNItem_time item
+            timeDiff = diffUTCTime time commentTime
+            line = author ++ " " ++ showNominalDiffTime timeDiff
             view = if isNothing (_HNItem_by item) && isNothing (_HNItem_text item) then emptyWidget
-                   else txt author <=>
+                   else str line <=>
                         padLeft (Pad 1) (txtWrap text)
         in
           view
@@ -83,35 +89,37 @@ commentView selectedIndex index comment =
     if selectedIndex == index then visible $ withAttr selectedCommentAttr view
     else withAttr defaultAttr view
 
-commentsTreeView :: Int -> Int -> Int -> Tree (Either String HNItem) -> (Int, Widget AppName)
-commentsTreeView padAmount selectedIndex index tree =
+commentsTreeView :: UTCTime -> Int -> Int -> Int -> Tree (Either String HNItem) -> (Int, Widget AppName)
+commentsTreeView time padAmount selectedIndex index tree =
   let accum :: Int -> Int -> [Tree (Either String HNItem)] -> (Int, [Widget AppName])
       accum pad idx nodes =
         let accum2 :: Int -> Tree(Either String HNItem) -> (Int, Widget AppName)
-            accum2 i node = commentsTreeView pad selectedIndex i node
+            accum2 i node = commentsTreeView time pad selectedIndex i node
         in
           mapAccumL accum2 idx nodes
   in
     case tree of
         Leaf -> (index+1, emptyWidget)
-        LeafNode c -> (index+1, padLeft (Pad padAmount) $ commentView selectedIndex index c)
+        LeafNode c -> (index+1, padLeft (Pad padAmount) $ commentView time selectedIndex index c)
         Node c xs -> let (newIndex, children) = accum (padAmount+2) (index+1) xs
-                         widget = padLeft (Pad padAmount) $ commentView selectedIndex index c
+                         widget = padLeft (Pad padAmount) $ commentView time selectedIndex index c
                         in
                     (newIndex, foldl' (<=>) widget children)
         StartNodes xs -> let (newIndex, children) = accum padAmount index xs
                             in
                         (newIndex, foldl' (<=>) emptyWidget children)
 
-storiesView :: Int -> [Either String HNItem] -> Widget AppName
-storiesView selectedItem items =
+storiesView :: UTCTime -> Int -> [Either String HNItem] -> Widget AppName
+storiesView time selectedItem items =
   let getItemView :: HNItem -> Widget AppName
       getItemView item =
         let author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
             title = fromMaybe "No title" $ _HNItem_title item
             score = fromMaybe 0 $ _HNItem_score item
             descendants = fromMaybe 0 $ _HNItem_descendants item
-            line = show score ++ " points by " ++ author ++ " " ++ show descendants ++ " comments"
+            storyTime = posixSecondsToUTCTime $ _HNItem_time item
+            timeDiff = diffUTCTime time storyTime
+            line = show score ++ " points by " ++ author ++ " " ++ showNominalDiffTime timeDiff ++ " " ++ show descendants ++ " comments"
         in
           txt title <=>
           padLeft (Pad 2) (str line)
@@ -205,3 +213,24 @@ drawCommentText comment =
       widgets = map convertToWidget markedUpComments
     in
   foldl' (<=>) emptyWidget widgets
+
+showNominalDiffTime :: NominalDiffTime -> String
+showNominalDiffTime diff =
+  let seconds = max 0 $ floor diff
+      minutes = seconds `div` 60
+      hours = minutes `div` 60
+      days = hours `div` 24
+
+      showFunc :: Int -> Int -> Int -> Int -> String
+      showFunc secs mins hrs dys
+        | secs == 1 = "1 second ago"
+        | secs < 60 = show secs ++ " seconds ago"
+        | mins == 1 = "1 minute ago"
+        | mins < 60 = show mins ++ " minutes ago"
+        | hrs == 1 = "1 hour ago"
+        | hrs < 24 = show hrs ++ " hours ago"
+        | dys == 1 = "1 day ago"
+        | otherwise = show days ++ " days ago"
+
+    in
+  showFunc seconds minutes hours days

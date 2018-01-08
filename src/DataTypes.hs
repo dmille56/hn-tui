@@ -7,6 +7,8 @@ import Data.Char(toLower)
 import Data.Text(Text)
 import Data.Aeson
 import Data.Aeson.Types
+import Data.Time
+import Data.Time.Clock.POSIX
 import GHC.Generics
 
 data Tree a = Leaf | LeafNode a | StartNodes [Tree a] | Node a [Tree a] deriving (Show)
@@ -34,13 +36,12 @@ data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_nStories :: Int
                          , _AppState_storiesSort :: StoriesSortType
                          , _AppState_view :: AppView
+                         , _AppState_time :: UTCTime
                          }
                 
 data StoriesSortType = SortTop | SortBest | SortNew | SortAsk | SortShow | SortJob
 
 type HNID = Integer
-
-type HNTime = Integer
 
 data HNType = HNStory | HNComment | HNJob | HNPoll | HNPollopt deriving (Generic, Show)
 
@@ -55,7 +56,7 @@ data HNItem = HNItem {
   _HNItem_id :: HNID,
   _HNItem_deleted :: Maybe Bool,
   _HNItem_by :: Maybe Text,
-  _HNItem_time :: HNTime,
+  _HNItem_time :: POSIXTime,
   _HNItem_text :: Maybe Text,
   _HNItem_dead :: Maybe Bool,
   _HNItem_parent :: Maybe HNID,

@@ -11,6 +11,7 @@ import Data.List(foldl', mapAccumL, genericReplicate)
 import Control.Monad.IO.Class
 import System.Process(rawSystem)
 import System.Exit
+import Data.Time
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
 
@@ -30,7 +31,7 @@ handleEvent state (AppEvent (LoadStories sort)) = liftIO (handleLoadStoriesEvent
 handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
 handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
 handleEvent state (AppEvent RefreshEvent) = liftIO (handleRefreshEvent state) >>= continue
-handleEvent state (AppEvent BackToStories) = continue $ handleBackToStoriesEvent state
+handleEvent state (AppEvent BackToStories) = liftIO (handleBackToStoriesEvent state) >>= continue
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'k') [])) = handleEvent state (AppEvent PreviousItem)
@@ -59,9 +60,11 @@ handleRefreshEvent :: AppState -> IO AppState
 handleRefreshEvent state =
   let view = _AppState_view state
       sort = _AppState_storiesSort state
-    in
-  case view of
-    HelpView _ -> return state
+    in do
+  case view of 
+    HelpView _ -> do
+      time <- getCurrentTime
+      return $ state { _AppState_time = time }
     StoriesView -> handleLoadStoriesEvent state sort
     CommentsView _ _ -> handleLoadCommentsEvent $ state { _AppState_view = StoriesView }
     
@@ -78,13 +81,15 @@ handleLoadStoriesEvent state sort =
           Right ids -> do
             i <- mapConcurrently getJSON $ take storiesPerPage ids
             return i
-
+            
+      time <- getCurrentTime
       return state { _AppState_storyIds = storyIds
                    , _AppState_stories = items 
                    , _AppState_loadedStoryNum = 0
                    , _AppState_selectedStory = 0
                    , _AppState_storiesSort = sort
                    , _AppState_nStories = length (items)
+                   , _AppState_time = time
                    }
 
     _ -> return state
@@ -104,10 +109,12 @@ handleNextStoriesEvent state previous = do
   case view of
     StoriesView -> do
       stories <- mapConcurrently getJSON storyIdsToGet
+      time <- getCurrentTime
       return state { _AppState_stories = stories
                    , _AppState_loadedStoryNum = storyStartNum
                    , _AppState_nStories = length (stories)
                    , _AppState_selectedStory = 0
+                   , _AppState_time = time
                    }
       
     _ -> return state
@@ -156,22 +163,26 @@ handleLoadCommentsEvent state = do
         Left error -> return state
         Right i -> do
           tree <- getHNItemKidsTree i
+          time <- getCurrentTime
           return state { _AppState_view = CommentsView i tree
                        , _AppState_selectedComment = 0
                        , _AppState_nComments = length tree
+                       , _AppState_time = time
                        }
   case view of
     CommentsView _ _ -> return state
     HelpView _ -> return state
     _ -> newState
 
-handleBackToStoriesEvent :: AppState -> AppState
+handleBackToStoriesEvent :: AppState -> IO AppState
 handleBackToStoriesEvent state =
   let view = _AppState_view state
-    in
+    in 
   case view of
-    HelpView _ -> state
-    _ -> state { _AppState_view = StoriesView }
+    HelpView _ -> return state
+    _ -> do
+      time <- getCurrentTime
+      return $ state { _AppState_view = StoriesView, _AppState_time = time }
     
 handleShowHelpEvent :: AppState -> AppState
 handleShowHelpEvent state =
