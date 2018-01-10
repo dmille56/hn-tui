@@ -34,6 +34,7 @@ handleEvent state (AppEvent RefreshEvent) = liftIO (handleRefreshEvent state) >>
 handleEvent state (AppEvent BackToStories) = liftIO (handleBackToStoriesEvent state) >>= continue
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'k') [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey V.KUp [])) = handleEvent state (AppEvent PreviousItem)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'j') [])) = handleEvent state (AppEvent NextItem)
@@ -43,6 +44,7 @@ handleEvent state (VtyEvent (V.EvKey V.KRight [])) = handleEvent state (AppEvent
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'h') [])) = handleEvent state (AppEvent BackToStories)
 handleEvent state (VtyEvent (V.EvKey V.KLeft [])) = handleEvent state (AppEvent BackToStories)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'o') [])) = handleEvent state (AppEvent OpenItem)
+handleEvent state (VtyEvent (V.EvKey V.KEnter [])) = handleEvent state (AppEvent OpenItem)
 handleEvent state (VtyEvent (V.EvKey (V.KChar '?') [])) = handleEvent state (AppEvent HelpEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'n') [])) = handleEvent state (AppEvent LoadNextStories)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'p') [])) = handleEvent state (AppEvent LoadPreviousStories)

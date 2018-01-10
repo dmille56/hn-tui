@@ -52,9 +52,16 @@ commentsView :: UTCTime -> Int -> HNItem -> Tree (Either String HNItem) -> Widge
 commentsView time selectedIndex item tree =
   let title = fromMaybe "No title" $ _HNItem_title item
       text = fromMaybe "" $ _HNItem_text item
+      author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
+      score = fromMaybe 0 $ _HNItem_score item
+      descendants = fromMaybe 0 $ _HNItem_descendants item
+      storyTime = posixSecondsToUTCTime $ _HNItem_time item
+      timeDiff = diffUTCTime time storyTime
+      line = show score ++ " points by " ++ author ++ " " ++ showNominalDiffTime timeDiff ++ " " ++ show descendants ++ " comments"
       itemViewBase = hBorder <=>
                      txt title <=>
                      txtWrap text <=>
+                     str line <=>
                      hBorder
       itemView = if selectedIndex == 0 then visible $ withAttr selectedCommentAttr itemViewBase
                  else withAttr defaultAttr itemViewBase
