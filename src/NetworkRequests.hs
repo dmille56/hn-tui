@@ -92,6 +92,10 @@ isCommentValid (Right item) =
   case (text, author, itemType) of
     (Nothing, Nothing, HNComment) -> False
     (_, _, _) -> True
+
+filterLeafs :: Tree (Either String HNItem) -> Bool
+filterLeafs Leaf = False
+filterLeafs _ = True
   
 getHNItemKidsRecursive :: HNID -> IO (Tree (Either String HNItem))
 getHNItemKidsRecursive id = do
@@ -106,7 +110,8 @@ getHNItemKidsRecursive id = do
       Just [] -> return $ LeafNode item
       Just kidIds -> do
         tree <- mapConcurrently getHNItemKidsRecursive kidIds
-        return $ Node item tree
+        let filteredTree = filter filterLeafs tree
+        return $ Node item filteredTree
 
 getHNItemKidsTree :: HNItem -> IO (Tree (Either String HNItem))
 getHNItemKidsTree item = do
@@ -123,7 +128,8 @@ getHNItemKidsTree item = do
             Just [] -> return $ LeafNode it
             Just kidIds -> do
                 tree <- mapConcurrently getHNItemKidsRecursive kidIds
-                return $ Node it tree
+                let filteredTree = filter filterLeafs tree
+                return $ Node it filteredTree
   
   let kidsIds :: [HNID]
       kidsIds = case _HNItem_kids item of
