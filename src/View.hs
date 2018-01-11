@@ -34,9 +34,26 @@ theMap = attrMap V.defAttr
 drawUI :: AppState -> [Widget AppName]
 drawUI state = [ui]
   where ui = withBorderStyle unicode $
-             vBox [ vLimit 1 $ viewport ViewportHeader Vertical $ str "|q| Quit |?| Help"
+             vBox [ vLimit 1 $ viewport ViewportHeader Vertical $ statusLineView state
                   , viewport ViewportMain Vertical $ mainView state
                   ]
+
+statusLineView :: AppState -> Widget AppName
+statusLineView state =
+  let view = _AppState_view state
+      sort = _AppState_storiesSort state
+      loadedStoryNum = _AppState_loadedStoryNum state
+      nStories = _AppState_nStories state
+      storyIdsN = case _AppState_storyIds state of
+        Left _ -> 0
+        Right ids -> length ids
+      left = "|q| Quit |?| Help - "
+      line = case view of
+               StoriesView -> left ++ "Viewing Stories (sort: " ++ drop 4 (show sort) ++ " " ++ show (loadedStoryNum+1) ++ "-" ++ show (loadedStoryNum + nStories) ++ " of " ++ show storyIdsN ++ ")"
+               CommentsView item _ -> left ++ T.unpack (fromMaybe "No title" (_HNItem_title item))
+               HelpView _ -> left ++ "Viewing Help"
+    in
+  str line
 
 mainView :: AppState -> Widget AppName
 mainView state =

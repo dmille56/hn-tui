@@ -28,7 +28,7 @@ handleEvent state (AppEvent NextItem) = continue $ handleNextItemEvent state Fal
 handleEvent state (AppEvent LoadPreviousStories) = liftIO (handleNextStoriesEvent state True) >>= continue 
 handleEvent state (AppEvent LoadNextStories) = liftIO (handleNextStoriesEvent state False) >>= continue 
 handleEvent state (AppEvent (LoadStories sort)) = liftIO (handleLoadStoriesEvent state sort) >>= continue 
-handleEvent state (AppEvent OpenItem) = liftIO (handleOpenItemEvent state) >>= continue
+handleEvent state (AppEvent OpenItem) = suspendAndResume $ handleOpenItemEvent state
 handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
 handleEvent state (AppEvent RefreshEvent) = liftIO (handleRefreshEvent state) >>= continue
 handleEvent state (AppEvent BackToStories) = liftIO (handleBackToStoriesEvent state) >>= continue

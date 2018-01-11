@@ -39,7 +39,7 @@ data AppState = AppState { _AppState_stories :: [Either String HNItem]
                          , _AppState_time :: UTCTime
                          }
                 
-data StoriesSortType = SortTop | SortBest | SortNew | SortAsk | SortShow | SortJob
+data StoriesSortType = SortTop | SortBest | SortNew | SortAsk | SortShow | SortJob deriving (Show)
 
 type HNID = Integer
 
