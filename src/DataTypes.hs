@@ -23,7 +23,7 @@ instance Foldable Tree where
 
 data AppName = ViewportHeader | ViewportMain deriving (Ord, Show, Eq)
 
-data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories | LoadStories StoriesSortType | RefreshEvent
+data Event = HelpEvent | QuitEvent | PreviousItem | NextItem | OpenItem | LoadComments | BackToStories | LoadNextStories | LoadPreviousStories | LoadStories StoriesSortType | RefreshEvent | ViewUrlsEvent
 
 data AppView = HelpView AppView | StoriesView | CommentsView HNItem (Tree (Either String HNItem))
 

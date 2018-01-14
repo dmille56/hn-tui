@@ -9,9 +9,10 @@ import Brick
 import Control.Concurrent.Async
 import Data.List(foldl', mapAccumL, genericReplicate)
 import Control.Monad.IO.Class
-import System.Process(rawSystem)
+import System.Process(rawSystem, system)
 import System.Exit
 import Data.Time
+import Data.Maybe(fromMaybe)
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
 
@@ -32,6 +33,7 @@ handleEvent state (AppEvent OpenItem) = suspendAndResume $ handleOpenItemEvent s
 handleEvent state (AppEvent LoadComments) = liftIO (handleLoadCommentsEvent state) >>= continue
 handleEvent state (AppEvent RefreshEvent) = liftIO (handleRefreshEvent state) >>= continue
 handleEvent state (AppEvent BackToStories) = liftIO (handleBackToStoriesEvent state) >>= continue
+handleEvent state (AppEvent ViewUrlsEvent) = suspendAndResume $ handleViewUrlsEvent state
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'q') [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey V.KEsc [])) = handleEvent state (AppEvent QuitEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = handleEvent state (AppEvent QuitEvent)
@@ -56,7 +58,24 @@ handleEvent state (VtyEvent (V.EvKey (V.KChar '5') [])) = handleEvent state (App
 handleEvent state (VtyEvent (V.EvKey (V.KChar '6') [])) = handleEvent state (AppEvent (LoadStories SortJob))
 handleEvent state (VtyEvent (V.EvKey (V.KFun 5) [])) = handleEvent state (AppEvent RefreshEvent)
 handleEvent state (VtyEvent (V.EvKey (V.KChar 'r') [])) = handleEvent state (AppEvent RefreshEvent)
+handleEvent state (VtyEvent (V.EvKey (V.KChar 'b') [])) = handleEvent state (AppEvent ViewUrlsEvent)
 handleEvent state _ = continue state
+
+handleViewUrlsEvent :: AppState -> IO AppState
+handleViewUrlsEvent state = do
+  let item = getAppViewSelectedItem state
+      view = _AppState_view state
+      text = case item of
+               Left _ -> ""
+               Right i -> fromMaybe "" $ _HNItem_text i
+  exitCode <- case (view, text) of
+        (HelpView _, _) -> return ExitSuccess
+        (_, "") -> return ExitSuccess
+        (_, _) -> do
+          let filteredText = T.filter (\x -> x /= '\'' && x /= '"') text
+          let command = "echo '" ++ T.unpack filteredText ++ "' | urlview"
+          system command
+  return state
 
 handleRefreshEvent :: AppState -> IO AppState
 handleRefreshEvent state =

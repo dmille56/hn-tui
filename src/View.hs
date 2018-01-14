@@ -184,6 +184,7 @@ helpView =
                      ,("5", "Load show stories")
                      ,("6", "Load job stories")
                      ,("F5, r", "Refresh the current view")
+                     ,("b", "Scan the selected comment for URLs to open with urlview")
                      ]
 
       controlsFunc :: (Widget AppName, Widget AppName) -> (Text, Text) -> (Widget AppName, Widget AppName)
