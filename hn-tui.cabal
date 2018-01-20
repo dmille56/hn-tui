@@ -1,13 +1,13 @@
 name:                hn-tui
 version:             0.1.0.0
--- synopsis:
--- description:
-homepage:            https://github.com/githubuser/hn-tui#readme
+synopsis:            Terminal User Interface for Hacker News
+description:         Browse Hacker News from your Terminal
+homepage:            https://github.com/dmille56/hn-tui#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2017 Author name here
+author:              Donovan Miller
+--maintainer:          example@example.com
+copyright:           2017 Donovan Miller
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
