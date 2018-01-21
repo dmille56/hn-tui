@@ -1,6 +1,8 @@
 # hn-tui
 Browse [Hacker News](https://news.ycombinator.com) from your Terminal
 
+<img src="https://i.imgur.com/oHcUTzv.gif" alt="Demo Animated Gif" width="958" height="520"/>
+
 hn-tui is a terminal user interface for browsing Hacker News written in Haskell.
 
 # Platforms
