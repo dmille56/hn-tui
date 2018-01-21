@@ -68,7 +68,9 @@ mainView state =
 commentsView :: UTCTime -> Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
 commentsView time selectedIndex item tree =
   let title = fromMaybe "No title" $ _HNItem_title item
-      text = fromMaybe "" $ _HNItem_text item
+      text = case (_HNItem_text item) of
+        Nothing -> ""
+        Just t -> T.cons '\n' t
       author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
       score = fromMaybe 0 $ _HNItem_score item
       descendants = fromMaybe 0 $ _HNItem_descendants item
@@ -77,7 +79,8 @@ commentsView time selectedIndex item tree =
       line = show score ++ " points by " ++ author ++ " " ++ showNominalDiffTime timeDiff ++ " " ++ show descendants ++ " comments"
       itemViewBase = hBorder <=>
                      txt title <=>
-                     txtWrap text <=>
+                     padLeft (Pad 2) (txtWrap text) <=>
+                     txt "\n" <=>
                      str line <=>
                      hBorder
       itemView = if selectedIndex == 0 then visible $ withAttr selectedCommentAttr itemViewBase
