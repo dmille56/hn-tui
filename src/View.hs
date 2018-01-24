@@ -19,15 +19,27 @@ import Text.HTML.TagSoup
 import qualified Graphics.Vty as V
 import qualified Data.Text as T
 
-selectedStoryAttr, selectedCommentAttr, defaultAttr :: AttrName
-selectedStoryAttr = "selectedStory"
-selectedCommentAttr = "selectedComment"
-defaultAttr = "defaultAttr"
+selectedAttr, defaultAttr, userAttr, pointsAttr, timeAttr, nCommentsAttr :: AttrName
+selectedAttr = "Selected"
+defaultAttr = "Default"
+userAttr = "User"
+pointsAttr = "Points"
+timeAttr = "Time"
+nCommentsAttr = "nComments"
+
+selectedTextColor, userTextColor, pointsTextColor, nCommentsTextColor :: V.Color
+selectedTextColor = V.red
+userTextColor = V.green
+pointsTextColor = V.green
+nCommentsTextColor = V.green
 
 theMap :: AttrMap
 theMap = attrMap V.defAttr
-  [ (selectedStoryAttr, fg V.red)
-  , (selectedCommentAttr, fg V.red)
+  [ (selectedAttr, fg selectedTextColor)
+  , (userAttr, fg userTextColor)
+  , (pointsAttr, fg pointsTextColor)
+  , (timeAttr, V.defAttr)
+  , (nCommentsAttr, fg nCommentsTextColor)
   , (defaultAttr, V.defAttr)
   ]
 
@@ -65,25 +77,33 @@ mainView state =
       CommentsView item tree -> commentsView time (_AppState_selectedComment state) item tree
       HelpView _ -> helpView
 
+postInfoLine :: UTCTime -> HNItem -> Widget AppName
+postInfoLine time item =
+  let author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
+      score = fromMaybe 0 $ _HNItem_score item
+      descendants = fromMaybe 0 $ _HNItem_descendants item
+      storyTime = posixSecondsToUTCTime $ _HNItem_time item
+      timeDiff = diffUTCTime time storyTime
+      authorWidget = withAttr userAttr $ str author
+      scoreWidget = withAttr pointsAttr $ str (show score) <+> str " points"
+      timeWidget = withAttr timeAttr $ str $ showNominalDiffTime timeDiff
+      commentsWidget = withAttr nCommentsAttr $ str (show descendants) <+> str " comments"
+   in
+  withAttr defaultAttr $ scoreWidget <+> str " by " <+> authorWidget <+> str " " <+> timeWidget <+> str " " <+> commentsWidget
+
 commentsView :: UTCTime -> Int -> HNItem -> Tree (Either String HNItem) -> Widget AppName
 commentsView time selectedIndex item tree =
   let title = fromMaybe "No title" $ _HNItem_title item
       text = case (_HNItem_text item) of
         Nothing -> ""
         Just t -> T.cons '\n' t
-      author = T.unpack $ fromMaybe "N/A" $ _HNItem_by item
-      score = fromMaybe 0 $ _HNItem_score item
-      descendants = fromMaybe 0 $ _HNItem_descendants item
-      storyTime = posixSecondsToUTCTime $ _HNItem_time item
-      timeDiff = diffUTCTime time storyTime
-      line = show score ++ " points by " ++ author ++ " " ++ showNominalDiffTime timeDiff ++ " " ++ show descendants ++ " comments"
       itemViewBase = hBorder <=>
                      txt title <=>
                      padLeft (Pad 2) (txtWrap text) <=>
                      txt "\n" <=>
-                     str line <=>
+                     postInfoLine time item <=>
                      hBorder
-      itemView = if selectedIndex == 0 then visible $ withAttr selectedCommentAttr itemViewBase
+      itemView = if selectedIndex == 0 then visible $ withAttr selectedAttr itemViewBase
                  else withAttr defaultAttr itemViewBase
       treeView = case (commentsTreeView time 0 selectedIndex 1 tree) of
         (_, v) -> v
@@ -100,8 +120,10 @@ commentView time selectedIndex index comment =
             commentTime = posixSecondsToUTCTime $ _HNItem_time item
             timeDiff = diffUTCTime time commentTime
             line = author ++ " " ++ showNominalDiffTime timeDiff
+            authorWidget = withAttr userAttr $ str author
+            timeWidget = withAttr timeAttr $ str $ showNominalDiffTime timeDiff
             view = if isNothing (_HNItem_by item) && isNothing (_HNItem_text item) then emptyWidget
-                   else str line <=>
+                   else authorWidget <+> str " " <+> timeWidget <=>
                         padLeft (Pad 1) (txtWrap text)
         in
           view
@@ -113,7 +135,7 @@ commentView time selectedIndex index comment =
       
       view = getView comment
   in
-    if selectedIndex == index then visible $ withAttr selectedCommentAttr view
+    if selectedIndex == index then visible $ withAttr selectedAttr view
     else withAttr defaultAttr view
 
 commentsTreeView :: UTCTime -> Int -> Int -> Int -> Tree (Either String HNItem) -> (Int, Widget AppName)
@@ -149,7 +171,7 @@ storiesView time selectedItem items =
             line = show score ++ " points by " ++ author ++ " " ++ showNominalDiffTime timeDiff ++ " " ++ show descendants ++ " comments"
         in
           txt title <=>
-          padLeft (Pad 2) (str line)
+          padLeft (Pad 2) (postInfoLine time item)
 
       getView :: Int -> Either String HNItem -> Widget AppName
       getView itemNum item =
@@ -159,7 +181,7 @@ storiesView time selectedItem items =
             view = if itemNum == 0 then hBorder <=> view1
                    else view1
         in
-          if selectedItem == itemNum then visible $ withAttr selectedStoryAttr view
+          if selectedItem == itemNum then visible $ withAttr selectedAttr view
           else withAttr defaultAttr view
           
 
