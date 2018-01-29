@@ -5,6 +5,7 @@ module View where
 import DataTypes
 
 import Brick
+import Brick.Themes (Theme, newTheme)
 import Brick.Widgets.Core(vBox, viewport)
 import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
@@ -20,21 +21,22 @@ import qualified Graphics.Vty as V
 import qualified Data.Text as T
 
 selectedAttr, defaultAttr, userAttr, pointsAttr, timeAttr, nCommentsAttr :: AttrName
-selectedAttr = "Selected"
-defaultAttr = "Default"
-userAttr = "User"
-pointsAttr = "Points"
-timeAttr = "Time"
+selectedAttr = "selected"
+defaultAttr = "default"
+userAttr = "user"
+pointsAttr = "points"
+timeAttr = "time"
 nCommentsAttr = "nComments"
 
 selectedTextColor, userTextColor, pointsTextColor, nCommentsTextColor :: V.Color
-selectedTextColor = V.red
+selectedTextColor = V.blue
 userTextColor = V.green
 pointsTextColor = V.green
 nCommentsTextColor = V.green
 
-theMap :: AttrMap
-theMap = attrMap V.defAttr
+defaultTheme :: Theme
+defaultTheme =
+  newTheme V.defAttr
   [ (selectedAttr, fg selectedTextColor)
   , (userAttr, fg userTextColor)
   , (pointsAttr, fg pointsTextColor)
