@@ -27,6 +27,11 @@ In your terminal run:
 hn-tui
 ```
 
+# Run with a custom theme
+``` shell
+hn-tui --theme yourtheme.ini
+```
+
 # Build Instructions
 Build:
 ```
